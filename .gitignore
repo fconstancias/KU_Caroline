@@ -55,3 +55,4 @@ rsconnect/
 # sam files:
 *.sam
 *.bam
+.DS_Store
