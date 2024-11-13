@@ -23,7 +23,6 @@
 #' 
 #' @import ggplot2, phyloseq, ggpubr, microViz
 #' 
-
 phyloseq_top_heatmap_barplot <- function(
     ps_up,
     group_var = "Sample_Time", 
@@ -38,170 +37,200 @@ phyloseq_top_heatmap_barplot <- function(
     facet_formula = "Sample_Type ~ Time",
     rm_unclassified = TRUE,
     barplot_level = "Species",
-    boxplot_main_group = "Class"
+    boxplot_main_group = "Class",
+    per_sub_plot = TRUE
 ) {
   
-  # Initialize output container
-  out <- list()
-  
-  # Loop through the specified taxonomic levels
-  for (tax in rank_names(ps_up)[rank_names(ps_up) %in% tax_levels]) {
-    print(tax)
-    
-    # Remove unclassified taxa (if specified) from all levels except "Phylum"
-    if (rm_unclassified && tax != "Phylum") {
-      ps_up <- ps_up %>% subset_taxa(Kingdom != "UNCLASSIFIED")
-    }
-    
-    # Aggregate to taxonomic level and retain most abundant taxa
-    out$most_ab_treat[[tax]] <- ps_up %>%
-      tax_glom(taxrank = tax) %>%
-      physeq_most_abundant(
-        physeq = .,
-        group_var = group_var,
-        tax_level = tax,
-        ntax = ifelse(tax == "Species", ntax_species, ntax)
-      )
-    
-    # Transform to relative abundance (percentage), filter to most abundant taxa
-    out$heat[[tax]] <- ps_up %>%
-      transform_sample_counts(function(x) x / sum(x) * 100) %>%
-      tax_glom(taxrank = tax) %>%
-      filter_tax_table(get(tax) %in% out$most_ab_treat[[tax]]) %>%
-      tax_mutate(Strain = NULL) %>%
-      phyloseq_ampvis_heatmap(
-        tax_aggregate = tax,
-        physeq = .,
-        tax_add = NULL,
-        transform = FALSE,
-        facet_by = facet_by,
-        group_by = group_by,
-        ntax = Inf
-      )
-    
-    # Replace zero values in abundance data with NA
-    out$heat[[tax]]$data <- out$heat[[tax]]$data %>%
-      mutate(Abundance = na_if(Abundance, 0))
-    
-    # Apply color scaling and other theme adjustments to the heatmap plot
-    out$heat[[tax]] <- out$heat[[tax]] +
-      facet_grid(as.formula(facet_heat), scales = "free", space = "free") +
-      scale_fill_viridis_c(
-        breaks = c(0, 0.01, 1, 10, 50, 75, 100),
-        labels = c(0, 0.01, 1, 10, 50, 75, 100),
-        trans = scales::pseudo_log_trans(sigma = 0.001),
-        na.value = 'transparent'
+  suppressMessages({
+    suppressWarnings({
+      
+      # Initialize output container
+      out <- list()
+      
+      # Loop through the specified taxonomic levels
+      for (tax in rank_names(ps_up)[rank_names(ps_up) %in% tax_levels]) {
+        # print(tax)
+        
+        # Remove unclassified taxa (if specified) from all levels except "Phylum"
+        if (rm_unclassified && tax != "Phylum") {
+          ps_up <- ps_up %>% subset_taxa(Kingdom != "UNCLASSIFIED")
+        }
+        
+        # Aggregate to taxonomic level and retain most abundant taxa
+        out$most_ab_treat[[tax]] <- ps_up %>%
+          tax_glom(taxrank = tax) %>%
+          physeq_most_abundant(
+            physeq = .,
+            group_var = group_var,
+            tax_level = tax,
+            ntax = ifelse(tax == "Species", ntax_species, ntax)
+          )
+        
+        # Transform to relative abundance (percentage), filter to most abundant taxa
+        out$heat[[tax]] <- ps_up %>%
+          transform_sample_counts(function(x) x / sum(x) * 100) %>%
+          tax_glom(taxrank = tax) %>%
+          filter_tax_table(get(tax) %in% out$most_ab_treat[[tax]]) %>%
+          tax_mutate(Strain = NULL) %>%
+          phyloseq_ampvis_heatmap(
+            tax_aggregate = tax,
+            physeq = .,
+            tax_add = NULL,
+            transform = FALSE,
+            facet_by = facet_by,
+            group_by = group_by,
+            ntax = Inf
+          )
+        
+        # Replace zero values in abundance data with NA
+        out$heat[[tax]]$data <- out$heat[[tax]]$data %>%
+          mutate(Abundance = na_if(Abundance, 0))
+        
+        # Apply color scaling and other theme adjustments to the heatmap plot
+        out$heat[[tax]] <- out$heat[[tax]] +
+          facet_grid(as.formula(facet_heat), scales = "free", space = "free") +
+          scale_fill_viridis_c(
+            breaks = c(0, 0.01, 1, 10, 50, 75, 100),
+            labels = c(0, 0.01, 1, 10, 50, 75, 100),
+            trans = scales::pseudo_log_trans(sigma = 0.001),
+            na.value = 'transparent'
+          ) +
+          ylab(NULL) +
+          theme(
+            axis.title.x = element_blank(),
+            axis.text.x = element_blank(),
+            axis.ticks.x = element_blank()
+          )
+      }
+      
+      # Arrange heatmaps for Phylum, Genus, and Species levels
+      
+      ggpubr::ggarrange(out$heat$Phylum + ylab(NULL) +
+                          theme(axis.title.x=element_blank(),
+                                axis.text.x=element_blank(),
+                                axis.ticks.x=element_blank(),
+                                legend.position = "none"),
+                        out$heat$Genus +
+                          theme(
+                            strip.background = element_blank(),
+                            strip.text.x = element_blank(),
+                            legend.position = "none"
+                          ) +
+                          theme(axis.title.x=element_blank(),
+                                axis.text.x=element_blank(),
+                                axis.ticks.x=element_blank(),
+                                legend.position = "none"),
+                        out$heat$Species +
+                          theme(
+                            strip.background = element_blank(),
+                            strip.text.x = element_blank(),
+                            legend.position = "none"
+                          ),
+                        align = "v",
+                        ncol = 1,
+                        heights = plot_heights,
+                        common.legend = FALSE) -> out$heat_all
+      
+      out$heat[[tax]] %>% 
+        ggpubr::get_legend() %>% 
+        ggpubr::as_ggplot() -> out$heat_legend
+      
+      
+      # Extract legend for the heatmap
+      legend <- ggpubr::get_legend(out$heat[[tax]]) %>%
+        ggpubr::as_ggplot()
+      
+      # Create a bar plot with abundance proportions at specified taxonomic level
+      bar_plot <- ps_up %>%
+        subset_taxa(Class != "UNCLASSIFIED") %>%
+        tax_glom(barplot_level) %>%
+        transform_sample_counts(function(x) x / sum(x) * 100) %>%
+        filter_tax_table(get(barplot_level) %in% out$most_ab_treat[[barplot_level]]) %>%
+        microViz::comp_barplot(
+          bar_width = 1,
+          n_taxa = length(out$most_ab_treat[[barplot_level]]),
+          tax_transform_for_plot = "identity",
+          taxon_renamer = function(x) stringr::str_replace_all(x, "_", " "),
+          label = plot_x,
+          # x = plot_x,
+          tax_level = barplot_level,
+          merge_other = FALSE
+        ) +
+        ylab("Proportion - %") +
+        theme_linedraw() +
+        # theme(axis.ticks = element_blank(), axis.text.x = element_blank())
+        theme(axis.ticks = element_blank())
+      
+      
+      # Create the nested plot with a boxplot-style visualization
+      p <- ggnested::ggnested(
+        bar_plot$data,
+        aes_string(main_group = boxplot_main_group, sub_group = "unique", x = plot_x, y = "Abundance")
       ) +
-      ylab(NULL) +
-      theme(
-        axis.title.x = element_blank(),
-        axis.text.x = element_blank(),
-        axis.ticks.x = element_blank()
-      )
-  }
-  
-  # Arrange heatmaps for Phylum, Genus, and Species levels
-  
-  ggpubr::ggarrange(out$heat$Phylum + ylab(NULL) +
-                      theme(axis.title.x=element_blank(),
-                            axis.text.x=element_blank(),
-                            axis.ticks.x=element_blank(),
-                            legend.position = "none"),
-                    out$heat$Genus +
-                      theme(
-                        strip.background = element_blank(),
-                        strip.text.x = element_blank(),
-                        legend.position = "none"
-                      ) +
-                      theme(axis.title.x=element_blank(),
-                            axis.text.x=element_blank(),
-                            axis.ticks.x=element_blank(),
-                            legend.position = "none"),
-                    out$heat$Species +
-                      theme(
-                        strip.background = element_blank(),
-                        strip.text.x = element_blank(),
-                        legend.position = "none"
-                      ),
-                    align = "v",
-                    ncol = 1,
-                    heights = plot_heights,
-                    common.legend = FALSE) -> heat_all
-  
-  out$heat[[tax]] %>% 
-    ggpubr::get_legend() %>% 
-    ggpubr::as_ggplot() -> legend
-  
-  
-  # Extract legend for the heatmap
-  legend <- ggpubr::get_legend(out$heat[[tax]]) %>%
-    ggpubr::as_ggplot()
-  
-  # Create a bar plot with abundance proportions at specified taxonomic level
-  bar_plot <- ps_up %>%
-    subset_taxa(Class != "UNCLASSIFIED") %>%
-    tax_glom(barplot_level) %>%
-    transform_sample_counts(function(x) x / sum(x) * 100) %>%
-    filter_tax_table(get(barplot_level) %in% out$most_ab_treat[[barplot_level]]) %>%
-    microViz::comp_barplot(
-      bar_width = 1,
-      n_taxa = length(out$most_ab_treat[[barplot_level]]),
-      tax_transform_for_plot = "identity",
-      taxon_renamer = function(x) stringr::str_replace_all(x, "_", " "),
-      label = plot_x,
-      # x = plot_x,
-      tax_level = barplot_level,
-      merge_other = FALSE
-    ) +
-    ylab("Proportion - %") +
-    theme_linedraw() +
-    # theme(axis.ticks = element_blank(), axis.text.x = element_blank())
-    theme(axis.ticks = element_blank())
-  
-  
-  # Create the nested plot with a boxplot-style visualization
-  p <- ggnested::ggnested(
-    bar_plot$data,
-    aes_string(main_group = boxplot_main_group, sub_group = "unique", x = plot_x, y = "Abundance")
-  ) +
-    scale_y_continuous(expand = c(0, 0)) +
-    geom_bar(position = "stack", stat = "identity", color="grey5", linewidth = 0.1) +
-    # theme_light() +  # Or any other preferred theme function like theme_minimal()
-    # ylab("Proportion - %") +
-    theme_linedraw() +
-    theme(axis.ticks = element_blank(), axis.text.x = element_blank()) +
-    facet_wrap(as.formula(facet_formula), scales = "free_x", drop = TRUE) +
-    ylab("Proportion - %")
-  
-  # Extract legend for the nested plot
-  nested_legend <- ggpubr::get_legend(p) %>%
-    ggpubr::as_ggplot()
-  
-  # Remove legend from the main nested plot
-  p <- p + theme(legend.position = "none")
-  
-  # Customize `bar_plot` with color scales from `p` and facet adjustments
-  tax_pal <- p$data %>%
-    distinct(unique, subgroup_colour) %>%
-    pull(subgroup_colour, unique)
-  
-  bar_plot <- bar_plot +
-    facet_wrap(as.formula(facet_formula), scales = "free_x", drop = TRUE) +
-    # scale_color_manual(values = tax_pal) +
-    scale_fill_manual(values = tax_pal) +
-    theme(legend.position = "none")
-  
-  # Return a list of plots and relevant components
-  out <- list(
-    "heat_all" = heat_all,
-    "legend" = legend,
-    "tax" = out$most_ab_treat,
-    "bar_plot" = bar_plot,
-    "nested_legend" = nested_legend,
-    "p" = p
-  )
-  
-  return(out)
+        scale_y_continuous(expand = c(0, 0)) +
+        geom_bar(position = "stack", stat = "identity", color="grey5", linewidth = 0.1) +
+        # theme_light() +  # Or any other preferred theme function like theme_minimal()
+        # ylab("Proportion - %") +
+        theme_linedraw() +
+        theme(axis.ticks = element_blank(), axis.text.x = element_blank()) +
+        facet_wrap(as.formula(facet_formula), scales = "free_x", drop = TRUE) +
+        ylab("Proportion - %")
+      
+      # Extract legend for the nested plot
+      out$nested_legend <- ggpubr::get_legend(p) %>%
+        ggpubr::as_ggplot()
+      
+      # Remove legend from the main nested plot
+      out$p <- p + theme(legend.position = "none")
+      
+      # Customize `bar_plot` with color scales from `p` and facet adjustments
+      tax_pal <- p$data %>%
+        distinct(unique, subgroup_colour) %>%
+        pull(subgroup_colour, unique)
+      
+      out$bar_plot <- bar_plot +
+        facet_wrap(as.formula(facet_formula), scales = "free_x", drop = TRUE) +
+        # scale_color_manual(values = tax_pal) +
+        scale_fill_manual(values = tax_pal) +
+        theme(legend.position = "none")
+      
+      
+      # Customize nested_plot per Subject
+      
+      if (isTRUE(per_sub_plot)){
+        
+        
+        p$data %>% 
+          select(-subgroup_colour, -group_subgroup, -group_colour) %>% 
+          ggnested::ggnested(
+            .,
+            aes_string(main_group = "Class", sub_group = "unique", x = "Time", y = "Abundance")
+          ) +
+          scale_y_continuous(
+            expand = expansion(add = c(0, 0.1))) + # axis starts exactly at 0
+          geom_bar(position = "stack", stat = "identity", color="grey5", linewidth = 0.1) +
+          theme_linedraw() +
+          theme(axis.ticks = element_blank(), axis.text.x = element_blank()) +
+          ylab("Proportion - %") + xlab(NULL) +facet_grid(rows = vars(Sample_Type), 
+                                                          cols = vars(Subject ),
+                                                          labeller = as_labeller(~ paste("", .))) + theme(legend.position = "none") -> out$ps_sub
+        
+      }
+      
+      # Return a list of plots and relevant components
+      # out <- list(
+      #   "heat_all" = heat_all,
+      #   "legend" = legend,
+      #   "tax" = out$most_ab_treat,
+      #   "bar_plot" = bar_plot,
+      #   "nested_legend" = nested_legend,
+      #   "p" = p
+      # )
+      
+      return(out)
+      
+    })
+  })
 }
 
 # g <- ggplot_build(bar_plot)
@@ -586,125 +615,129 @@ compute_plot_beta <- function(ps_up = ps_up,
 }
 
 phyloseq_explore_beta <- function(ps_up = ps_up,
-                              beta = beta,
-                              m = "PCoA",
-                              color_group = "Time",
-                              shape_group = "Sample",
-                              alpha = NULL,
-                              col_pal = time_pal,
-                              fill_pal = time_pal,
-                              path_group = "interaction(Sample,Subject)",
-                              facet_formula = "Sample ~ .",
-                              axis1 = 1,
-                              axis2 = 2,
-                              seed = 123,
-                              permanova_terms = c("Time", "cluster_Dtp2"),
-                              metadata_dist_boxplot = NULL,
-                              strata = "none",
-                              perm = 999)
+                                  beta = beta,
+                                  m = "PCoA",
+                                  color_group = "Time",
+                                  shape_group = "Sample",
+                                  alpha = NULL,
+                                  col_pal = time_pal,
+                                  fill_pal = time_pal,
+                                  path_group = "interaction(Sample,Subject)",
+                                  facet_formula = "Sample ~ .",
+                                  axis1 = 1,
+                                  axis2 = 2,
+                                  seed = 123,
+                                  permanova_terms = c("Time", "cluster_Dtp2"),
+                                  metadata_dist_boxplot = NULL,
+                                  strata = "none",
+                                  perm = 999)
 {
-  ## Load necessary packages
-  require(tidyverse); require(phyloseq); require(vegan)
-  cat(paste0('\n##',"Using tidyverse version ", packageVersion('tidyverse'),'\n'))
-  cat(paste0('\n##',"Using phyloseq version ", packageVersion('phyloseq'),'\n'))
-  
-  out <- list() # Initialize output list
-  
-  #### 1. Compute beta diversity and organize data
-  
-  # Compute beta diversity using multiple distance metrics
-  # Uncomment and modify as needed to calculate additional beta diversity metrics
-  # ps_up %>%
-  #   microViz::dist_calc(dist = "robust.aitchison") %>% 
-  #   microViz::dist_get() -> beta$rAitchison
-  
-  #### 2. Ordination
-  ps_up %>% 
-    phyloseq_plot_bdiv(dlist = beta, ps_rare = ., m = m, seed = seed, axis1 = axis1, axis2 = axis2) -> out$plot_list
-  
-  # Generate PCoA ordination plots with specified color and shape groups
-  out$plot_list %>%
-    phyloseq_plot_ordinations_facet(color_group = color_group, shape_group = shape_group, alpha = alpha) +
-    scale_color_manual(name = "", values = col_pal, na.value = "black") +
-    scale_fill_manual(name = "", values = fill_pal, na.value = "black") + 
-    theme_linedraw() + theme(legend.position = "right") +
-    facet_wrap(distance ~ ., scales = "free", nrow = 3) -> out$pcoas
-  
-  # Extract explained variance from ordination plot
-  out$plot_list %>%
-    phyloseq_ordinations_expl_var() -> out$expl_var
-  
-  #### 3. Detailed Ordination for Robust Aitchison Distance
-  out$plot_list$rAitchison + geom_point(size = 3, aes_string(colour = color_group, shape = shape_group, alpha = alpha)) +
-    geom_path(data = out$plot_list$rAitchison$data %>% arrange(Subject), aes_string(group = path_group),
-              arrow = arrow(angle = 30, length = unit(0.15, "inches"), ends = "last", type = "open"), linetype = "longdash", size = 0.1) +
-    theme_light() + scale_color_manual(name = "", values = col_pal, na.value = "black") +
-    scale_fill_manual(name = "", values = fill_pal, na.value = "black") +
-    facet_grid(as.formula(facet_formula), scales = "free_y", space = "fixed", switch = "y") + theme_linedraw() + theme(strip.placement = "outside") -> out$PCOA
-  
-  # Extract and hide legend for the ordination plot
-  out$PCOA %>% ggpubr::get_legend() %>% ggpubr::as_ggplot() -> out$PCOA_leg
-  out$PCOA + theme(legend.position = "none") -> out$PCOA
-  
-  #### 4. Environmental Fit (optional)
-  out$PCOA + scale_fill_manual(values = c("transparent")) +
-    scale_color_manual(values = rep("transparent", length(col_pal))) + theme(panel.border = element_blank(),
-                                                                             panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) -> empty_plot_tmp
-  
-  #### 5. PERMANOVA Analysis
-  tmp_out1 = NULL; tmp_out2 = NULL
-  for (terms_margins in c("terms", "margin")) {
-    form = paste0(permanova_terms, collapse = " * ")
-    ps_up %>% lapply(beta, FUN = phyloseq_adonis2, physeq = ., formula = form, nrep = perm, terms_margins = terms_margins) %>%
-      bind_rows(.id = "Distance") %>% mutate("Group" = as.vector(form), "terms_margin" = terms_margins) %>%
-      bind_rows(., tmp_out1) -> tmp_out1
-    form = paste0(permanova_terms, collapse = " + ")
-    ps_up %>% lapply(beta, FUN = phyloseq_adonis2, physeq = ., formula = form, nrep = perm, terms_margins = terms_margins, strata = strata) %>%
-      bind_rows(.id = "Distance") %>% mutate("Group" = as.vector(form), "terms_margin" = terms_margins) %>%
-      bind_rows(., tmp_out2) -> tmp_out2
-  }
-  bind_rows(tmp_out1, tmp_out2) -> out$perm
-  
-  #### 6. Pairwise PERMANOVA
-  for (compare_header in permanova_terms) {
-    ps_up %>% lapply(beta, FUN = physeq_pairwise_permanovas_adonis2, physeq = ., compare_header = compare_header, n_perm = perm, strata = strata, terms_margins = "terms") %>%
-      bind_rows(.id = "Distance") %>% mutate("Group" = as.vector(compare_header)) %>% bind_rows(., out$pw_perm) -> out$pw_perm
-    lapply(beta, FUN = phyloseq_TW, physeq = ps_up, variable = compare_header, nrep = perm) %>%
-      bind_rows(.id = "Distance") %>% mutate("Group" = as.vector(compare_header)) %>% bind_rows(., out$tw_perm) -> out$tw_perm
-  }
-  
-  #### 7. Generate PCoA plots for each variable in permanova_terms
-  for (compare_header in permanova_terms) {
-    phyloseq_generate_pcoa_per_variables(tmp = ps_up, group = compare_header, m = "PCoA", dist = beta,
-                                         color_group = color_group, shape_group = shape_group, alpha = alpha,
-                                         col_pal = col_pal, fill_pal = fill_pal) -> out[[compare_header]]
-  }
-  
-  #### 8. Distance Boxplot (optional)
-  if (!is.null(metadata_dist_boxplot)) {
-    lapply(beta, FUN = phyloseq_distance_boxplot, p = ps_up, d = "Sample") -> dist_bx
-    ps_up %>% sample_data() %>% data.frame() %>% dplyr::select(any_of(metadata_dist_boxplot)) %>%
-      rownames_to_column("Var") %>% drop_na() -> meta_sel
-    meta_sel_2 <- meta_sel
-    colnames(meta_sel) <- paste0(colnames(meta_sel), "_1")
-    colnames(meta_sel_2) <- paste0(colnames(meta_sel_2), "_2")
-    
-    dist_df <- NULL
-    for (d in names(dist_bx)) {
-      dist_bx[[d]]$matrix %>% mutate("Distance" = d) %>% bind_rows(., dist_df) -> dist_df
-    }
-    
-    dist_df %>% left_join(meta_sel, by = c("Var1" = "Var_1")) %>%
-      left_join(meta_sel_2, by = c("Var2" = "Var_2")) -> dist_df
-    
-    dist_df %>% filter(Sample_1 == Sample_2, Time_1 == "TP1", Subject_1 == Subject_2) %>%
-      arrange(Distance, Subject_2, Time_2) %>%
-      ggplot(data = ., aes_string(x = "Time_2", y = "value", color = "Sample_2")) + geom_boxplot() + theme_minimal() -> out$dist_boxplot
-  }
-  
-  return(out)
+  suppressMessages({
+    suppressWarnings({
+      
+      ## Load necessary packages
+      # require(tidyverse); require(phyloseq); require(vegan)
+      # cat(paste0('\n##',"Using tidyverse version ", packageVersion('tidyverse'),'\n'))
+      # cat(paste0('\n##',"Using phyloseq version ", packageVersion('phyloseq'),'\n'))
+      # 
+      out <- list() # Initialize output list
+      
+      #### 1. Compute beta diversity and organize data
+      
+      # Compute beta diversity using multiple distance metrics
+      # Uncomment and modify as needed to calculate additional beta diversity metrics
+      # ps_up %>%
+      #   microViz::dist_calc(dist = "robust.aitchison") %>% 
+      #   microViz::dist_get() -> beta$rAitchison
+      
+      #### 2. Ordination
+      ps_up %>% 
+        phyloseq_plot_bdiv(dlist = beta, ps_rare = ., m = m, seed = seed, axis1 = axis1, axis2 = axis2) -> out$plot_list
+      
+      # Generate PCoA ordination plots with specified color and shape groups
+      out$plot_list %>%
+        phyloseq_plot_ordinations_facet(color_group = color_group, shape_group = shape_group, alpha = alpha) +
+        scale_color_manual(name = "", values = col_pal, na.value = "black") +
+        scale_fill_manual(name = "", values = fill_pal, na.value = "black") + 
+        theme_linedraw() + theme(legend.position = "right") +
+        facet_wrap(distance ~ ., scales = "free", nrow = 3) -> out$pcoas
+      
+      # Extract explained variance from ordination plot
+      out$plot_list %>%
+        phyloseq_ordinations_expl_var() -> out$expl_var
+      
+      #### 3. Detailed Ordination for Robust Aitchison Distance
+      out$plot_list$rAitchison + geom_point(size = 3, aes_string(colour = color_group, shape = shape_group, alpha = alpha)) +
+        geom_path(data = out$plot_list$rAitchison$data %>% arrange(Subject), aes_string(group = path_group),
+                  arrow = arrow(angle = 30, length = unit(0.15, "inches"), ends = "last", type = "open"), linetype = "longdash", size = 0.1) +
+        theme_light() + scale_color_manual(name = "", values = col_pal, na.value = "black") +
+        scale_fill_manual(name = "", values = fill_pal, na.value = "black") +
+        facet_grid(as.formula(facet_formula), scales = "free_y", space = "fixed", switch = "y") + theme_linedraw() + theme(strip.placement = "outside") -> out$PCOA
+      
+      # Extract and hide legend for the ordination plot
+      out$PCOA %>% ggpubr::get_legend() %>% ggpubr::as_ggplot() -> out$PCOA_leg
+      out$PCOA + theme(legend.position = "none") -> out$PCOA
+      
+      #### 4. Environmental Fit (optional)
+      out$PCOA + scale_fill_manual(values = c("transparent")) +
+        scale_color_manual(values = rep("transparent", length(col_pal))) + theme(panel.border = element_blank(),
+                                                                                 panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) -> empty_plot_tmp
+      
+      #### 5. PERMANOVA Analysis
+      tmp_out1 = NULL; tmp_out2 = NULL
+      for (terms_margins in c("terms", "margin")) {
+        form = paste0(permanova_terms, collapse = " * ")
+        ps_up %>% lapply(beta, FUN = phyloseq_adonis2, physeq = ., formula = form, nrep = perm, terms_margins = terms_margins) %>%
+          bind_rows(.id = "Distance") %>% mutate("Group" = as.vector(form), "terms_margin" = terms_margins) %>%
+          bind_rows(., tmp_out1) -> tmp_out1
+        form = paste0(permanova_terms, collapse = " + ")
+        ps_up %>% lapply(beta, FUN = phyloseq_adonis2, physeq = ., formula = form, nrep = perm, terms_margins = terms_margins, strata = strata) %>%
+          bind_rows(.id = "Distance") %>% mutate("Group" = as.vector(form), "terms_margin" = terms_margins) %>%
+          bind_rows(., tmp_out2) -> tmp_out2
+      }
+      bind_rows(tmp_out1, tmp_out2) -> out$perm
+      
+      #### 6. Pairwise PERMANOVA
+      for (compare_header in permanova_terms) {
+        ps_up %>% lapply(beta, FUN = physeq_pairwise_permanovas_adonis2, physeq = ., compare_header = compare_header, n_perm = perm, strata = strata, terms_margins = "terms") %>%
+          bind_rows(.id = "Distance") %>% mutate("Group" = as.vector(compare_header)) %>% bind_rows(., out$pw_perm) -> out$pw_perm
+        lapply(beta, FUN = phyloseq_TW, physeq = ps_up, variable = compare_header, nrep = perm) %>%
+          bind_rows(.id = "Distance") %>% mutate("Group" = as.vector(compare_header)) %>% bind_rows(., out$tw_perm) -> out$tw_perm
+      }
+      
+      #### 7. Generate PCoA plots for each variable in permanova_terms
+      for (compare_header in permanova_terms) {
+        phyloseq_generate_pcoa_per_variables(tmp = ps_up, group = compare_header, m = "PCoA", dist = beta,
+                                             color_group = color_group, shape_group = shape_group, alpha = alpha,
+                                             col_pal = col_pal, fill_pal = fill_pal) -> out[[compare_header]]
+      }
+      
+      #### 8. Distance Boxplot (optional)
+      if (!is.null(metadata_dist_boxplot)) {
+        lapply(beta, FUN = phyloseq_distance_boxplot, p = ps_up, d = "Sample") -> dist_bx
+        ps_up %>% sample_data() %>% data.frame() %>% dplyr::select(any_of(metadata_dist_boxplot)) %>%
+          rownames_to_column("Var") %>% drop_na() -> meta_sel
+        meta_sel_2 <- meta_sel
+        colnames(meta_sel) <- paste0(colnames(meta_sel), "_1")
+        colnames(meta_sel_2) <- paste0(colnames(meta_sel_2), "_2")
+        
+        dist_df <- NULL
+        for (d in names(dist_bx)) {
+          dist_bx[[d]]$matrix %>% mutate("Distance" = d) %>% bind_rows(., dist_df) -> dist_df
+        }
+        
+        dist_df %>% left_join(meta_sel, by = c("Var1" = "Var_1")) %>%
+          left_join(meta_sel_2, by = c("Var2" = "Var_2")) -> dist_df
+        
+        dist_df %>% filter(Sample_1 == Sample_2, Time_1 == "TP1", Subject_1 == Subject_2) %>%
+          arrange(Distance, Subject_2, Time_2) %>%
+          ggplot(data = ., aes_string(x = "Time_2", y = "value", color = "Sample_2")) + geom_boxplot() + theme_minimal() -> out$dist_boxplot
+      }
+      
+      return(out)
+    })
+  })
 }
-
 
 
 
@@ -736,115 +769,120 @@ phyloseq_explore_beta <- function(ps_up = ps_up,
 #' @param ref_group_stat Reference group for pairwise statistical tests.
 #' @return A list with summary data frames, ggplot objects, and statistical test results.
 #' 
+#' 
 phyloseq_explore_alpha <- function(alpha_long_df,
-                               alpha_measures = c("observed", "diversity_shannon", "diversity_inverse_simpson", "diversity_coverage", "evenness_pielou"),
-                               pd = position_dodge(0.3),
-                               x = "Time",
-                               y = "value",
-                               color_point = "Subject",
-                               shape_point = "Sample",
-                               group_point = "interaction(Sample,Subject)",
-                               group_boxplot = "interaction(Sample,Time)",
-                               group_line = "Subject",
-                               facet_formula = "alphadiversiy ~ Sample + cluster_Dtp2",
-                               col_pal = sub_pal,
-                               fill_pal = sub_pal,
-                               stat_formula = "value ~ Time",
-                               anova_test_formula = "value ~ Time*Sample + Error(Subject/(Time*Sample))",
-                               group_by_stats = c("alphadiversiy", "Sample", "cluster_Dtp2"),
-                               padjust_method = "fdr",
-                               stat_paired = FALSE,
-                               ref_group_stat = NULL) {
+                                   alpha_measures = c("observed", "diversity_shannon", "diversity_inverse_simpson", "diversity_coverage", "evenness_pielou"),
+                                   pd = position_dodge(0.3),
+                                   x = "Time",
+                                   y = "value",
+                                   color_point = "Subject",
+                                   shape_point = "Sample",
+                                   group_point = "interaction(Sample,Subject)",
+                                   group_boxplot = "interaction(Sample,Time)",
+                                   group_line = "Subject",
+                                   facet_formula = "alphadiversiy ~ Sample + cluster_Dtp2",
+                                   col_pal = sub_pal,
+                                   fill_pal = sub_pal,
+                                   stat_formula = "value ~ Time",
+                                   anova_test_formula = "value ~ Time*Sample + Error(Subject/(Time*Sample))",
+                                   group_by_stats = c("alphadiversiy", "Sample", "cluster_Dtp2"),
+                                   padjust_method = "fdr",
+                                   stat_paired = FALSE,
+                                   ref_group_stat = NULL) {
   
-  ####-------- Compute Summary Statistics
-  alpha_summary <- alpha_long_df %>%
-    group_by(alphadiversiy, Time, Sample) %>%
-    rstatix::get_summary_stats("value")
-  
-  ####-------- Plotting
-  alpha_plot <- alpha_long_df %>%
-    ggplot(aes_string(x = x, y = y)) +
-    geom_boxplot(aes_string(group = group_boxplot), outlier.shape = NA, alpha = 0.4) +
-    geom_point(aes_string(color = color_point, shape = shape_point, group = group_point), position = pd) +
-    geom_line(aes_string(group = group_line), position = pd, linetype = "dashed", color = "grey50", linewidth = 0.08) +
-    facet_grid(as.formula(facet_formula), scales = "free", switch = "y") +
-    theme_linedraw() + theme(strip.placement = "outside") +
-    xlab(NULL) + ylab(NULL) +
-    scale_color_manual(values = col_pal) + scale_fill_manual(values = fill_pal)
-  
-  # Separate legend for reuse or customization
-  alpha_legend <- ggpubr::get_legend(alpha_plot) %>% ggpubr::as_ggplot()
-  alpha_plot <- alpha_plot + theme(legend.position = "none")
-  
-  ####-------- Statistical Tests
-  # Pairwise Wilcoxon Test
-  wilcox_test <- ggpubr::compare_means(
-    formula = as.formula(stat_formula),
-    group.by = group_by_stats,
-    paired = stat_paired,
-    ref.group = ref_group_stat,
-    data = alpha_long_df,
-    method = "wilcox.test",
-    p.adjust.method = padjust_method
-  ) %>%
-    select(-.y., -p.format, -p.signif) %>%
-    arrange(p) %>%
-    rstatix::add_significance(p.col = "p.adj")
-  
-  # Pairwise T-Test
-  t_test <- ggpubr::compare_means(
-    formula = as.formula(stat_formula),
-    group.by = group_by_stats,
-    paired = stat_paired,
-    ref.group = ref_group_stat,
-    data = alpha_long_df,
-    method = "t.test",
-    p.adjust.method = padjust_method
-  ) %>%
-    select(-.y., -p.format, -p.signif) %>%
-    arrange(p) %>%
-    rstatix::add_significance(p.col = "p.adj")
-  
-  # ANOVA
-  anova_result <- alpha_long_df %>%
-    group_by(alphadiversiy, Time, Subject) %>%
-    filter(n() > 1) %>%
-    ungroup() %>%
-    group_by(alphadiversiy, Time, Sample) %>%
-    filter(n() > 39) %>%
-    ungroup() %>%
-    group_by(alphadiversiy) %>%
-    rstatix::anova_test(formula = as.formula(anova_test_formula))
-  
-  anova_table <- rstatix::get_anova_table(anova_result)
-  
-  # Kruskal-Wallis Test
-  kruskal_test <- ggpubr::compare_means(
-    formula = as.formula(stat_formula),
-    group.by = group_by_stats,
-    paired = stat_paired,
-    ref.group = NULL,
-    data = alpha_long_df,
-    method = "kruskal.test",
-    p.adjust.method = padjust_method
-  ) %>%
-    select(-.y., -p.format, -p.signif) %>%
-    arrange(p) %>%
-    rstatix::add_significance(p.col = "p.adj")
-  
-  ####-------- Output
-  list(
-    alpha_summary = alpha_summary,
-    alpha_plot = alpha_plot,
-    alpha_legend = alpha_legend,
-    anova_result = anova_result,
-    anova_table = anova_table,
-    kruskal_test = kruskal_test,
-    wilcox_test = wilcox_test,
-    t_test = t_test
-  )
+  # Suppress messages and warnings for all subsequent steps
+  suppressMessages(suppressWarnings({
+    
+    ####-------- Compute Summary Statistics
+    alpha_summary <- alpha_long_df %>%
+      group_by(alphadiversiy, Time, Sample) %>%
+      rstatix::get_summary_stats("value")
+    
+    ####-------- Plotting
+    alpha_plot <- alpha_long_df %>%
+      ggplot(aes_string(x = x, y = y)) +
+      geom_boxplot(aes_string(group = group_boxplot), outlier.shape = NA, alpha = 0.4) +
+      geom_point(aes_string(color = color_point, shape = shape_point, group = group_point), position = pd) +
+      geom_line(aes_string(group = group_line), position = pd, linetype = "dashed", color = "grey50", linewidth = 0.08) +
+      facet_grid(as.formula(facet_formula), scales = "free", switch = "y") +
+      theme_linedraw() + theme(strip.placement = "outside") +
+      xlab(NULL) + ylab(NULL) +
+      scale_color_manual(values = col_pal) + scale_fill_manual(values = fill_pal)
+    
+    # Separate legend for reuse or customization
+    alpha_legend <- ggpubr::get_legend(alpha_plot) %>% ggpubr::as_ggplot()
+    alpha_plot <- alpha_plot + theme(legend.position = "none")
+    
+    ####-------- Statistical Tests
+    # Pairwise Wilcoxon Test
+    wilcox_test <- ggpubr::compare_means(
+      formula = as.formula(stat_formula),
+      group.by = group_by_stats,
+      paired = stat_paired,
+      ref.group = ref_group_stat,
+      data = alpha_long_df,
+      method = "wilcox.test",
+      p.adjust.method = padjust_method
+    ) %>%
+      select(-.y., -p.format, -p.signif) %>%
+      arrange(p) %>%
+      rstatix::add_significance(p.col = "p.adj")
+    
+    # Pairwise T-Test
+    t_test <- ggpubr::compare_means(
+      formula = as.formula(stat_formula),
+      group.by = group_by_stats,
+      paired = stat_paired,
+      ref.group = ref_group_stat,
+      data = alpha_long_df,
+      method = "t.test",
+      p.adjust.method = padjust_method
+    ) %>%
+      select(-.y., -p.format, -p.signif) %>%
+      arrange(p) %>%
+      rstatix::add_significance(p.col = "p.adj")
+    
+    # ANOVA
+    anova_result <- alpha_long_df %>%
+      group_by(alphadiversiy, Time, Subject) %>%
+      filter(n() > 1) %>%
+      ungroup() %>%
+      group_by(alphadiversiy, Time, Sample) %>%
+      filter(n() > 39) %>%
+      ungroup() %>%
+      group_by(alphadiversiy) %>%
+      rstatix::anova_test(formula = as.formula(anova_test_formula))
+    
+    anova_table <- rstatix::get_anova_table(anova_result)
+    
+    # Kruskal-Wallis Test
+    kruskal_test <- ggpubr::compare_means(
+      formula = as.formula(stat_formula),
+      group.by = group_by_stats,
+      paired = stat_paired,
+      ref.group = NULL,
+      data = alpha_long_df,
+      method = "kruskal.test",
+      p.adjust.method = padjust_method
+    ) %>%
+      select(-.y., -p.format, -p.signif) %>%
+      arrange(p) %>%
+      rstatix::add_significance(p.col = "p.adj")
+    
+    ####-------- Output
+    list(
+      alpha_summary = alpha_summary,
+      alpha_plot = alpha_plot,
+      alpha_legend = alpha_legend,
+      anova_result = anova_result,
+      anova_table = anova_table,
+      kruskal_test = kruskal_test,
+      wilcox_test = wilcox_test,
+      t_test = t_test
+    )
+    
+  }))
 }
-
 
 compute_plot_alpha <- function(alpha_long_df = alpha_long_df,
                                alpha_measures = c("observed", "diversity_shannon", "diversity_inverse_simpson", "diversity_coverage", "evenness_pielou"),
@@ -866,23 +904,23 @@ compute_plot_alpha <- function(alpha_long_df = alpha_long_df,
                                stat_paired = FALSE,
                                ref_group_stat = NULL){
   out = NULL
-
+  
   ####-------- compute alpha div and arrange data
-
-
+  
+  
   # ps_up %>%
   #   phyloseq_alphas() -> alpha
-
+  
   # alpha %>%
   #   pivot_longer(cols = all_of(alpha_measures), values_to = "value", names_to = 'alphadiversiy', values_drop_na  = TRUE) %>%
   #   mutate(alphadiversiy = fct_relevel(alphadiversiy, alpha_measures)) -> alpha_long_df
-
+  
   alpha_long_df %>%
     group_by(alphadiversiy, Time, Sample) %>%
     rstatix::get_summary_stats("value") -> alpha_sum
-
+  
   ####-------- plot
-
+  
   alpha_long_df %>%
     arrange(time) %>%
     # filter(!is.na(cluster_Dtp2)) %>%
@@ -894,18 +932,18 @@ compute_plot_alpha <- function(alpha_long_df = alpha_long_df,
     geom_line(aes_string(group=group_line), position = pd, linetype = "dashed", color = "grey50", linewidth = 0.08) +
     facet_grid(as.formula(facet_formula), scales = "free", switch = "y") +
     theme_linedraw() + theme(strip.placement = "outside") + xlab(NULL) + ylab(NULL) + scale_color_manual(values = col_pal) + scale_fill_manual(values = fill_pal) -> alpha_plot
-
+  
   alpha_plot %>%
     ggpubr::get_legend(.) %>%
     ggpubr::as_ggplot(.) -> alpha_plot_leg
-
+  
   alpha_plot + theme(legend.position = "none") -> alpha_plot
-
-
+  
+  
   ####-------- stats
-
+  
   # would be cool to be able to write text -> code for group_by mainly
-
+  
   # alpha_long_df %>%
   #   # filter(!is.na(cluster_Dtp2)) %>%
   #   # group_by(alphadiversiy, Sample, cluster_Dtp2) %>%
@@ -922,7 +960,7 @@ compute_plot_alpha <- function(alpha_long_df = alpha_long_df,
   # # !!! rlang::syms(crit1)
   #
   #
-
+  
   ggpubr::compare_means(formula = as.formula(stat_formula),
                         group.by = group_by_stats,
                         paired = stat_paired,
@@ -934,7 +972,7 @@ compute_plot_alpha <- function(alpha_long_df = alpha_long_df,
     arrange(p) %>%
     # mutate(signif = ifelse(p.adj <= 0.05, 'SIGN', 'NS')) %>%
     rstatix::add_significance(p.col = "p.adj") -> wilcox.test_stat
-
+  
   ggpubr::compare_means(formula = as.formula(stat_formula),
                         group.by = group_by_stats,
                         paired = stat_paired,
@@ -946,7 +984,7 @@ compute_plot_alpha <- function(alpha_long_df = alpha_long_df,
     arrange(p) %>%
     # mutate(signif = ifelse(p.adj <= 0.05, 'SIGN', 'NS')) %>%
     rstatix::add_significance(p.col = "p.adj") -> t.test_stat
-
+  
   ggpubr::compare_means(formula = as.formula(stat_formula),
                         group.by = group_by_stats,
                         paired = stat_paired,
@@ -958,7 +996,7 @@ compute_plot_alpha <- function(alpha_long_df = alpha_long_df,
     arrange(p) %>%
     # mutate(signif = ifelse(p.adj <= 0.05, 'SIGN', 'NS')) %>%
     rstatix::add_significance(p.col = "p.adj") -> anova_stat
-
+  
   ggpubr::compare_means(formula = as.formula(stat_formula),
                         group.by = group_by_stats,
                         paired = stat_paired,
@@ -970,8 +1008,8 @@ compute_plot_alpha <- function(alpha_long_df = alpha_long_df,
     arrange(p) %>%
     # mutate(signif = ifelse(p.adj <= 0.05, 'SIGN', 'NS')) %>%
     rstatix::add_significance(p.col = "p.adj") -> kruskal.test_stat
-
-
+  
+  
   alpha_long_df %>%
     group_by(alphadiversiy, Time, Subject) %>%
     add_count() %>%
@@ -983,11 +1021,11 @@ compute_plot_alpha <- function(alpha_long_df = alpha_long_df,
     ungroup() %>%
     group_by(alphadiversiy) %>%
     rstatix::anova_test(formula = as.formula(anova_test_formula)) -> anova
-
+  
   anova %>%
     rstatix::get_anova_table(.) -> anova_table
-
-
+  
+  
   out = list("alpha" = alpha,
              "alpha_long_df" = alpha_long_df,
              "alpha_sum" = alpha_sum,
@@ -999,7 +1037,7 @@ compute_plot_alpha <- function(alpha_long_df = alpha_long_df,
              "anova_stat" = anova_stat,
              "t.test_stat" = t.test_stat,
              "wilcox.test_stat" = wilcox.test_stat)
-
+  
   return(out)
-
+  
 }
