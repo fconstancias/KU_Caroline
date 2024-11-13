@@ -301,11 +301,11 @@ compute_plot_beta <- function(ps_up = ps_up,
                               perm = 999)
 {
   
-  
+  suppressMessages(suppressWarnings({ 
   ## ------------------------------------------------------------------------
   require(tidyverse); require(phyloseq); require(vegan)
-  cat(paste0('\n##',"You are using tidyverse version ", packageVersion('tidyverse'),'\n\n'))
-  cat(paste0('\n##',"You are using phyloseq version ", packageVersion('phyloseq'),'\n\n'))
+  # cat(paste0('\n##',"You are using tidyverse version ", packageVersion('tidyverse'),'\n\n'))
+  # cat(paste0('\n##',"You are using phyloseq version ", packageVersion('phyloseq'),'\n\n'))
   
   ####-------- 
   
@@ -611,7 +611,7 @@ compute_plot_beta <- function(ps_up = ps_up,
     
   }
   return(out)
-  
+}))
 }
 
 phyloseq_explore_beta <- function(ps_up = ps_up,
