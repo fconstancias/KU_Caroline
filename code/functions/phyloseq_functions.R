@@ -311,7 +311,6 @@ compute_plot_beta <- function(ps_up = ps_up,
   
   out <- NULL
   
-  
   ####-------- compute beta div and arrange data
   
   # ps_up %>%
@@ -712,26 +711,80 @@ phyloseq_explore_beta <- function(ps_up = ps_up,
                                              col_pal = col_pal, fill_pal = fill_pal) -> out[[compare_header]]
       }
       
-      #### 8. Distance Boxplot (optional)
-      if (!is.null(metadata_dist_boxplot)) {
-        lapply(beta, FUN = phyloseq_distance_boxplot, p = ps_up, d = "Sample") -> dist_bx
-        ps_up %>% sample_data() %>% data.frame() %>% dplyr::select(any_of(metadata_dist_boxplot)) %>%
-          rownames_to_column("Var") %>% drop_na() -> meta_sel
-        meta_sel_2 <- meta_sel
-        colnames(meta_sel) <- paste0(colnames(meta_sel), "_1")
-        colnames(meta_sel_2) <- paste0(colnames(meta_sel_2), "_2")
+      ####-------- distance boxplot
+      
+      if( !is.null(metadata_dist_boxplot)){
         
-        dist_df <- NULL
-        for (d in names(dist_bx)) {
-          dist_bx[[d]]$matrix %>% mutate("Distance" = d) %>% bind_rows(., dist_df) -> dist_df
+        lapply(
+          beta,
+          FUN = phyloseq_distance_boxplot,
+          p = ps_up,
+          d = "Sample") -> dist_bx
+        
+        ps_up %>%
+          sample_data()%>%
+          data.frame() %>%
+          dplyr::select(any_of(metadata_dist_boxplot)) %>%
+          rownames_to_column("Var") %>% 
+          drop_na() -> meta_sel
+        
+        meta_sel_2 <- meta_sel
+        
+        colnames(meta_sel) <- paste0(  colnames(meta_sel) , "_1")
+        colnames(meta_sel_2) <- paste0(  colnames(meta_sel_2) , "_2")
+        
+        dist_df = NULL
+        for (d in names(dist_bx))
+        {
+          dist_bx[[d]]$matrix %>% 
+            mutate("Distance" = d) %>% 
+            bind_rows(.,dist_df) -> dist_df
         }
         
-        dist_df %>% left_join(meta_sel, by = c("Var1" = "Var_1")) %>%
-          left_join(meta_sel_2, by = c("Var2" = "Var_2")) -> dist_df
+        dist_df %>% 
+          left_join(meta_sel,
+                    by = c("Var1" = "Var_1")) %>% 
+          left_join(meta_sel_2,
+                    by =  c("Var2" = "Var_2")) -> dist_df
         
-        dist_df %>% filter(Sample_1 == Sample_2, Time_1 == "TP1", Subject_1 == Subject_2) %>%
-          arrange(Distance, Subject_2, Time_2) %>%
-          ggplot(data = ., aes_string(x = "Time_2", y = "value", color = "Sample_2")) + geom_boxplot() + theme_minimal() -> out$dist_boxplot
+        dist_df %>% #dplyr::filter((Time_1 == "TP1" & Subject_1 == Subject_2 & Sample_1 == Sample_2 ))
+          # mutate( 
+          #   value = case_when(Time_1 == Time_2 & Subject_1 == Subject_2 & Sample_1 == Sample_2 ~  0,
+          #                     .default = value))  %>% 
+          dplyr::filter(Sample_1 == Sample_2,
+                        # Time_1 != Time_2,
+                        Time_1 == "TP1",# or add columns at TP1 distance = 0 ?
+                        # Time_2 != "TP1",
+                        Subject_1 == Subject_2) %>% # arrange(value)
+          arrange(Distance, Subject_2, Time_2) %>% 
+          # filter(dist_1 == "wjaccard") %>%
+          ggplot(data = ., aes_string(x="Time_2", y="value")) +
+          geom_boxplot(outlier.colour = NA, alpha=0.7, aes_string(fill = "Time_2")) +
+          # ggbeeswarm::geom_beeswarm(size=1, alpha=0.2,
+          #                           position=pd) +
+          geom_jitter(size=1, position = pd, aes_string(color = "Subject_1")) +
+          # aes_string(shape = "cluster_Dtp2_1")) + 
+          geom_line(aes_string(group="Subject_1"), position = pd, linetype = "dashed", color = "grey50", linewidth = 0.08) +
+          
+          facet_grid(as.formula(paste0("Distance ~ Sample_1")), scales = "free_y", space = "fixed", switch = "y") +
+          scale_color_manual(name = "", values = sub_pal,
+                             na.value = "black") +
+          scale_fill_manual(name = "", values = time_pal,
+                            na.value = "black") +
+          theme_light() + ylab("Distance to Baseline") + xlab(NULL) + theme(
+            axis.text.x = element_blank()) +  theme_linedraw() + theme(strip.placement = "outside") -> dist_box
+        
+        dist_box %>% 
+          ggpubr::get_legend(.) %>% 
+          ggpubr::as_ggplot(.) -> dist_box_leg
+        
+        dist_box + theme(legend.position = "none") -> dist_box
+        
+        
+        out$dist_df <- dist_df
+        out$dist_box <- dist_box
+        out$dist_box_leg <- dist_box_leg
+        
       }
       
       return(out)
