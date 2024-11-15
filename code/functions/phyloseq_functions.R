@@ -41,6 +41,10 @@ phyloseq_top_heatmap_barplot <- function(
     per_sub_plot = TRUE
 ) {
   
+  require(ggpubr); require(tidyverse);require(speedyseq);require(ampvis2);require(microViz);require(rstatix)
+  source("https://raw.githubusercontent.com/fconstancias/DivComAnalyses/master/R/phyloseq_heatmap.R")
+  
+
   suppressMessages({
     suppressWarnings({
       
@@ -300,13 +304,18 @@ compute_plot_beta <- function(ps_up = ps_up,
                               strata = "none",
                               perm = 999)
 {
-  
-  suppressMessages(suppressWarnings({ 
   ## ------------------------------------------------------------------------
-  require(tidyverse); require(phyloseq); require(vegan)
+  require(ggpubr); require(tidyverse);require(speedyseq);require(ampvis2);require(microViz);require(rstatix)
+  
+  source("https://raw.githubusercontent.com/fconstancias/DivComAnalyses/master/R/phyloseq_beta.R")
+  
   # cat(paste0('\n##',"You are using tidyverse version ", packageVersion('tidyverse'),'\n\n'))
   # cat(paste0('\n##',"You are using phyloseq version ", packageVersion('phyloseq'),'\n\n'))
   
+
+  
+  suppressMessages(suppressWarnings({ 
+
   ####-------- 
   
   out <- NULL
@@ -842,6 +851,11 @@ phyloseq_explore_alpha <- function(alpha_long_df,
                                    padjust_method = "fdr",
                                    stat_paired = FALSE,
                                    ref_group_stat = NULL) {
+  
+  
+  source("https://raw.githubusercontent.com/fconstancias/DivComAnalyses/master/R/phyloseq_alpha.R")
+  require(ggpubr); require(tidyverse);require(speedyseq);require(ampvis2);require(microViz);require(rstatix)
+  
   
   # Suppress messages and warnings for all subsequent steps
   suppressMessages(suppressWarnings({
