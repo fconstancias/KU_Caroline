@@ -41,7 +41,7 @@ phyloseq_top_heatmap_barplot <- function(
     per_sub_plot = TRUE
 ) {
   
-  require(ggpubr); require(tidyverse);require(speedyseq);require(ampvis2);require(microViz);require(rstatix)
+  require(ggpubr); require(tidyverse);require(speedyseq);require(ampvis2);require(microViz);require(rstatix);require(ggnested)
   source("https://raw.githubusercontent.com/fconstancias/DivComAnalyses/master/R/phyloseq_heatmap.R")
   
 
