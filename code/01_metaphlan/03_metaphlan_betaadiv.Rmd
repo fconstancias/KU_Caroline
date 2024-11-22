@@ -1,0 +1,647 @@
+---
+title: " Study II - Beta-diversity analyses of metaphlan profiles"
+author: "Florentin Constancias"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  html_document: 
+    toc: yes
+    keep_md: yes
+---
+
+
+```{r setup, include=FALSE}
+rm(list = ls())
+gc()
+
+# invisible(lapply(paste0('package:', names(sessionInfo()$otherPkgs)), detach, character.only=TRUE, unload=TRUE))
+
+# options(java.parameters = "-Xmx80000m")
+```
+
+
+```{r setup2, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+##knitr::opts_chunk$set(cache=TRUE)
+# knitr::opts_chunk$set(echo = TRUE)
+# knitr::opts_chunk$set(dev = "ragg_png") # https://ragg.r-lib.org/index.html
+##knitr::opts_chunk$set(fig.width = 6) #https://r4ds.had.co.nz/graphics-for-communication.html#figure-sizing
+knitr::opts_chunk$set(fig.asp = 0.618)
+knitr::opts_chunk$set(fig.show = "hold")
+knitr::opts_chunk$set(fig.show = "70%")
+knitr::opts_chunk$set(fig.align = "center")
+```
+
+```{r setup3, include=FALSE}
+library(tidyverse)
+library(readxl)
+library(readr)
+library(speedyseq)
+library(microViz)
+```
+
+```{r setup4, include=FALSE}
+
+'%!in%' <- function(x,y)!('%in%'(x,y))
+
+source_dir = "https://raw.githubusercontent.com/fconstancias/DivComAnalyses/master/R/"
+# source_dir = "~/Documents/GitHub/DivComAnalyses/R/"
+
+source(paste0(source_dir,"phyloseq_normalisation.R"))
+source(paste0(source_dir,"phyloseq_varia.R"))
+source(paste0(source_dir,"phyloseq_beta.R"))
+```
+
+
+```{r}
+load(here::here("../../data/processed_data/metaphlan/01_data.Rdata"))
+load(here::here("../../data/processed_data/metaphlan/02_data.Rdata"))
+```
+
+```{r}
+pd <- position_dodge(0.3)
+```
+
+Let's source the function:
+
+```{r, include=TRUE}
+source("https://raw.githubusercontent.com/fconstancias/KU_Caroline/refs/heads/main/code/functions/phyloseq_functions.R")
+
+# details:
+
+#' @title This function calculates beta diversity, generates ordination plots (e.g., PCoA),  performs PERMANOVA, and optionally creates boxplots of distances between metadata groups.
+#' @author Florentin Constancias
+#' @param ps_up A phyloseq object containing microbiome data.
+#' @param beta A list of distance matrices for beta diversity (e.g., Bray-Curtis, Aitchison).
+#' @param m Character string specifying the ordination method (default: "PCoA").
+#' @param color_group Character string for the variable used to color points in ordination plots (default: "Time").
+#' @param shape_group Character string for the variable used to shape points in ordination plots (default: "Sample").
+#' @param alpha Optional variable for transparency adjustment in ordination plots (default: NULL).
+#' @param col_pal Color palette for point colors (default: `time_pal`).
+#' @param fill_pal Fill color palette for point fills (default: `time_pal`).
+#' @param path_group Character string for the variable grouping paths in ordination plots (default: "interaction(Sample,Subject)").
+#' @param facet_formula Formula for faceting ordination plots (default: "Sample ~ .").
+#' @param axis1 Integer specifying the ordination axis to plot on the x-axis (default: 1).
+#' @param axis2 Integer specifying the ordination axis to plot on the y-axis (default: 2).
+#' @param seed Integer for random seed, ensuring reproducible results in ordination (default: 123).
+#' @param permanova_terms Character vector of variables for PERMANOVA tests (default: c("Time", "cluster_Dtp2")).
+#' @param metadata_dist_boxplot Optional variable for generating distance boxplots (default: NULL).
+#' @param strata Variable for stratified PERMANOVA testing (default: "none").
+#' @param perm Number of permutations for PERMANOVA (default: 999).
+#' 
+#' @return A list of results, including:
+#'   - `pcoas`: Ordination plots with faceting and custom color/shape groups.
+#'   - `expl_var`: Explained variance for each axis in ordination plots.
+#'   - `PCOA`: Detailed ordination plot for the rAitchison distance with paths.
+#'   - `PCOA_leg`: Legend for the ordination plot.
+#'   - `perm`: PERMANOVA results.
+#'   - `pw_perm`: Pairwise PERMANOVA results for each variable in `permanova_terms`.
+#'   - `tw_perm`: Two-way PERMANOVA results for each variable in `permanova_terms`.
+#'   - Optional: `dist_boxplot` if `metadata_dist_boxplot` is provided, showing boxplots of distances.
+
+```
+
+# Compute the distance for all samples:
+
+```{r, warning=FALSE, echo=FALSE}
+ps_up %>%
+  subset_taxa(Class != "UNCLASSIFIED") %>% 
+  transform_sample_counts(function(x) x/sum(x) * 1) %>%
+  phyloseq_compute_bdiv() -> beta
+
+
+ps_up %>% 
+  subset_taxa(Class != "UNCLASSIFIED") %>% 
+  transform_sample_counts(function(x) x/sum(x) * 1) %>%
+  microViz::dist_calc(., dist = "robust.aitchison") %>% 
+  microViz::dist_get() %>% 
+  magrittr::divide_by(100) -> beta$rAitchison
+
+beta$bray <- NULL
+beta$sorensen <- NULL
+```
+
+
+# Run fonction for full dataset:
+
+```{r, warning=FALSE, echo=FALSE}
+ps_up %>%
+  subset_taxa(Class != "UNCLASSIFIED") %>% 
+  transform_sample_counts(function(x) x/sum(x) * 1) %>% 
+  phyloseq_explore_beta(ps_up = .,
+                    beta = beta,
+                    color_group = "Time",
+                    shape_group = "Sample",
+                    alpha = NULL,
+                    col_pal = time_pal,
+                    fill_pal = time_pal,
+                    path_group = "interaction(Sample,Subject)",
+                    facet_formula = "Sample ~ .",
+                    axis1 = 1,
+                    axis2 = 2,
+                    seed = 123,
+                    permanova_terms = c("Sample", "Time", "cluster_Dtp2"),
+                    metadata_dist_boxplot = c("Subject", "Time", "Sample"),
+                    strata = "none") -> out
+```
+
+
+Explore PCoA : distances show similar patterns
+
+```{r}
+out$pcoas
+```
+
+Explained variance of the plots above.
+
+```{r}
+out$expl_var %>% 
+  mutate_if(is.numeric, ~round(., 3)) %>% 
+  DT::datatable()
+```
+
+Focus on Robust Aitchinson distance, clear discrimination between site, display trajectories.
+
+```{r}
+out$PCOA + facet_null()
+```
+Corresponding legend:
+
+```{r}
+out$PCOA_leg
+```
+
+Statistical evaluation of the beta diversity: association with Sample_Type, Time and Cluster of inflamation at TP2 -PERMANOVA:
+
+Sample Type explain most of the variation (R2) > Time > Cluster
+
+More info: https://gist.github.com/claczny/3415270a6c6919969bff79d2c246a527
+
+```{r}
+out$perm %>% 
+  mutate_if(is.double, ~round(., 3)) %>% 
+  dplyr::filter(Distance == "rAitchison", terms_margin == "terms") %>% 
+  DT::datatable()
+```
+
+Statistical evaluation of the beta diversity - Pairwise PERMANOVA tests between Time, Sample Type, Inflamation response clusters:
+
+
+```{r}
+out$pw_perm %>% 
+  dplyr::filter(Distance == "rAitchison") %>% 
+  mutate_if(is.numeric, ~round(., 3)) %>% 
+  DT::datatable()
+```
+
+We could also play the intra-subject distance accross time | maybe with within group variation for TP1: within TP1 / Sample:
+
+```{r}
+out$dist_box
+```
+
+
+Statistical evaluation of the beta diversity - Pairwise Multivariate T.tests between Time, Sample Type, Inflamation response clusters:
+
+```{r}
+# out$tw_perm %>% 
+#   DT::datatable()
+```
+
+We can also explore the groups of the different variables:
+
+Sample
+
+```{r}
+out$Sample$Saliva
+```
+
+```{r}
+out$Sample$Plaque
+```
+```{r}
+out$Time$TP1
+```
+
+```{r}
+out$Time$TP2
+```
+
+```{r}
+out$Time$TP3
+```
+
+
+# Now we can explore more Saliva and Plaque samples:
+
+
+## Saliva:
+
+```{r,return = FALSE}
+ps_up %>%
+  subset_samples(Sample == "Saliva") %>% 
+  subset_taxa(Class != "UNCLASSIFIED") %>% 
+  transform_sample_counts(function(x) x/sum(x) * 1) %>% 
+  microViz::ps_mutate(cluster_Dtp2 = as.factor(cluster_Dtp2)) %>% 
+  compute_plot_beta(ps_up = .,
+                    beta = beta,
+                    color_group = "Time",
+                    shape_group = "Sample",
+                    alpha = NULL,
+                    col_pal = time_pal,
+                    fill_pal = time_pal,
+                    path_group = "interaction(Subject)",
+                    facet_formula = "Sample ~ .",
+                    axis1 = 1,
+                    axis2 = 2,
+                    seed = 123,
+                    permanova_terms = c("Time","cluster_Dtp2"),
+                    # metadata_dist_boxplot = NULL ,
+                    strata = "none") -> saliva
+```
+
+
+```{r}
+saliva$pcoas
+```
+
+
+```{r}
+saliva$PCOA
+```
+
+```{r}
+saliva$perm %>% 
+  mutate_if(is.double, ~round(., 3)) %>% 
+  dplyr::filter(Distance == "rAitchison", terms_margin == "terms") %>%
+  DT::datatable()
+```
+
+
+Pairwise comparisons between groups: Time, ... 
+
+
+Interesting to see that when considering only presence and absence of taxa (i.e., binary bJaccard), no significant differences between TP1 and TP3, but still when considering proportion of taxa. 
+
+
+```{r}
+saliva$pw_perm %>% 
+  # dplyr::filter(Distance == "rAitchison") %>% 
+  mutate_if(is.numeric, ~round(., 3)) %>% 
+  DT::datatable()
+```
+
+```{r}
+# saliva$tw_perm %>% 
+#   DT::datatable()
+```
+
+We could test if the distance between saliva and plaque per individual changes over time:
+
+We have this distance to the baseline boxplot - which is the same as prev. but only Saliva here. But for this we need to use the ouputs generated with the full dataset.
+
+```{r}
+saliva$dist_box
+```
+
+During perturbation : TP2 : saliva and Plaque microbiome are similar:
+
+```{r}
+out$dist_df %>% 
+  dplyr::filter(Sample_1 != Sample_2,
+                Time_1 == Time_2,
+                Subject_1 == Subject_2) %>%
+  arrange(Distance, Subject_2, Time_2) %>% 
+  ggplot(data = ., aes_string(x="Time_2", y="value")) +
+  geom_boxplot(outlier.colour = NA, alpha=0.7, aes_string(fill = "Time_2")) +
+  geom_jitter(size=1, position = pd, aes_string(color = "Subject_1")) +
+  geom_line(aes_string(group="Subject_1"), position = pd, linetype = "dashed", color = "grey50", linewidth = 0.08) +
+  facet_grid(as.formula(paste0("Distance ~ Sample_1")), scales = "free_y", space = "fixed", switch = "y") +
+  scale_color_manual(name = "", values = sub_pal,
+                     na.value = "black") +
+  scale_fill_manual(name = "", values = time_pal,
+                    na.value = "black") +
+  theme_light() + ylab("Between Site Intra-individual distance ") + xlab(NULL) + theme(
+    axis.text.x = element_blank()) +  theme_linedraw() + theme(strip.placement = "outside") -> d_box
+
+d_box %>%
+  ggpubr::get_legend(.) %>%
+  ggpubr::as_ggplot(.) -> d_box_leg
+
+d_box + theme(legend.position = "none") -> d_box
+
+d_box
+```
+
+## Plaque:
+
+```{r,return = FALSE, message=FALSE, warning=FALSE}
+ps_up %>%
+  subset_samples(Sample == "Plaque") %>% 
+  subset_taxa(Class != "UNCLASSIFIED") %>% 
+  transform_sample_counts(function(x) x/sum(x) * 1) %>% 
+  microViz::ps_mutate(cluster_Dtp2 = as.factor(cluster_Dtp2)) %>% 
+  compute_plot_beta(ps_up = .,
+                    beta = beta,
+                    color_group = "Time",
+                    shape_group = "Sample",
+                    alpha = NULL,
+                    col_pal = time_pal,
+                    fill_pal = time_pal,
+                    path_group = "interaction(Subject)",
+                    facet_formula = "Sample ~ .",
+                    axis1 = 1,
+                    axis2 = 2,
+                    seed = 123,
+                    permanova_terms = c("Time","cluster_Dtp2"),
+                    # metadata_dist_boxplot = NULL ,
+                    strata = "none") -> plaque
+```
+
+
+```{r}
+plaque$pcoas
+```
+
+
+```{r}
+plaque$PCOA
+```
+
+```{r}
+plaque$perm %>% 
+  mutate_if(is.double, ~round(., 3)) %>% 
+  dplyr::filter(Distance == "rAitchison", terms_margin == "terms") %>%
+  DT::datatable()
+```
+
+Pairwise comparisons between groups: Time, ... 
+
+Interesting to compare between saliva and plaque... Maybe a plot displaying R2 and adjpavalue?
+
+
+```{r}
+plaque$pw_perm %>% 
+  # dplyr::filter(Distance == "rAitchison") %>% 
+  mutate_if(is.numeric, ~round(., 3)) %>% 
+  DT::datatable()
+```
+
+```{r}
+plaque$tw_perm %>% 
+  DT::datatable()
+```
+
+Display PERMANOVA results as a plot - in progress:
+
+```{r}
+permanova_terms = c("Time","cluster_Dtp2")
+
+
+saliva$perm %>% 
+  mutate(Data = "Saliva") %>% 
+  rbind(.,
+        plaque$perm %>% 
+          mutate(Data = "Plaque")    
+  ) %>% 
+  filter(!terms %in% c("Residual","Total")) %>%
+  mutate(terms = fct_relevel(terms, c(permanova_terms, "Time:cluster_Dtp2"))) %>%
+  # arrange(Distance, Group2) %>%
+  # filter(p.adj <= 0.05) %>%
+  # mutate(p.adj = replace(p.adj, p.adj > 0.05, NA)) %>% 
+  ggplot(mapping = aes(x = terms,
+                       y = R2, #`Pr(>F)` ,
+                       size = R2,
+                       # fill = `Pr(>F)`,
+                       color = `Pr(>F)`)) + #,
+  # size = R2)) +
+  facet_grid(Distance + Data ~ terms_margin+ Group,  scales = "fixed", space = "fixed", drop = FALSE) +
+  geom_point(alpha=0.8) +
+  # geom_tile() +
+  # geom_bar(stat="identity") +
+  theme_linedraw() + 
+  xlab(NULL) + ylab(NULL) +
+  scale_size(range = c(1, 8), 
+             breaks = c(0.05, 0.1,0.2,0.6),
+             labels = c(0.05, 0.1,0.2,0.6),
+             limits = c(0,1),
+             # trans = "sqrt",
+             name="PERMANOVA R2 value") + 
+  scale_color_viridis_c(name = "adj p.value",
+                        na.value = "grey10",
+                        trans = scales::pseudo_log_trans(sigma = 0.001),
+                        limits = c(0,0.05),
+                        breaks = c(1,0.05, 0.01, 0.001),
+                        labels = c(1,0.05, 0.01, 0.001)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) #+
+# coord_equal()
+
+
+
+```
+
+Site across time?
+
+```{r,return = FALSE, message=FALSE, warning=FALSE}
+tmp = ps_up
+group = "Time"
+Time_out=NULL
+# Time_out <- vector("list", length(tmp %>%
+#                                get_variable(group) %>%
+#                                levels()))
+# names(Time_out) <- tmp %>%
+#   get_variable(group) %>% levels()
+
+for(tp in tmp %>%
+    get_variable(group) %>%
+    unique()){
+  
+  prune_samples(get_variable(tmp, group) == tp,
+                tmp) %>%
+    subset_taxa(Class != "UNCLASSIFIED") %>% 
+    transform_sample_counts(function(x) x/sum(x) * 1) %>% 
+    microViz::ps_mutate(cluster_Dtp2 = as.factor(cluster_Dtp2)) %>% 
+    compute_plot_beta(ps_up = .,
+                      beta = beta,
+                      color_group = "Sample",
+                      shape_group = "Sample",
+                      alpha = NULL,
+                      col_pal = sample_pal,
+                      fill_pal = sample_pal,
+                      path_group = "interaction(Subject)",
+                      facet_formula = "Sample ~ .",
+                      axis1 = 1,
+                      axis2 = 2,
+                      seed = 123,
+                      permanova_terms = c("Sample"),
+                      metadata_dist_boxplot = NULL ,
+                      strata = "none") -> Time_out[[tp]]
+}
+
+```
+
+
+```{r}
+Time_out %>% 
+  plyr::ldply(., function(x) x$perm) %>%
+  rename(Time = '.id') %>% 
+  DT::datatable()
+```
+
+
+At baseline, TP2, TP3: impact of clusterdtp2 in the diff site?
+
+
+```{r,return = FALSE, message=FALSE, warning=FALSE}
+tmp = ps_up
+group = "Time"
+Time_out_clust=NULL
+# Time_out <- vector("list", length(tmp %>%
+#                                get_variable(group) %>%
+#                                levels()))
+# names(Time_out) <- tmp %>%
+#   get_variable(group) %>% levels()
+
+for(tp in tmp %>%
+    get_variable(group) %>%
+    unique()){
+  
+  prune_samples(get_variable(tmp, group) == tp,
+                tmp) %>%
+    subset_taxa(Class != "UNCLASSIFIED") %>% 
+    transform_sample_counts(function(x) x/sum(x) * 1) %>% 
+    microViz::ps_mutate(cluster_Dtp2 = as.factor(cluster_Dtp2)) %>% 
+    compute_plot_beta(ps_up = .,
+                      beta = beta,
+                      color_group = "Sample",
+                      shape_group = "Sample",
+                      alpha = NULL,
+                      col_pal = sample_pal,
+                      fill_pal = sample_pal,
+                      path_group = "interaction(Subject)",
+                      facet_formula = "Sample ~ .",
+                      axis1 = 1,
+                      axis2 = 2,
+                      seed = 123,
+                      permanova_terms = c("Sample", "cluster_Dtp2"),
+                      metadata_dist_boxplot = NULL ,
+                      strata = "none") -> Time_out_clust[[tp]]
+}
+
+```
+
+```{r}
+Time_out_clust %>% 
+  plyr::ldply(., function(x) x$perm) %>%
+  rename(Time = '.id') %>% 
+  DT::datatable()
+```
+
+Saliva
+
+```{r,return = FALSE, message=FALSE, warning=FALSE}
+tmp = ps_up %>% 
+  subset_samples(Sample == "Saliva")
+group = "Time"
+Time_out_saliva_clust=NULL
+# Time_out <- vector("list", length(tmp %>%
+#                                get_variable(group) %>%
+#                                levels()))
+# names(Time_out) <- tmp %>%
+#   get_variable(group) %>% levels()
+
+for(tp in tmp %>%
+    get_variable(group) %>%
+    unique()){
+  
+  prune_samples(get_variable(tmp, group) == tp,
+                tmp) %>%
+    subset_taxa(Class != "UNCLASSIFIED") %>% 
+    transform_sample_counts(function(x) x/sum(x) * 1) %>% 
+    microViz::ps_mutate(cluster_Dtp2 = as.factor(cluster_Dtp2)) %>% 
+    compute_plot_beta(ps_up = .,
+                      beta = beta,
+                      color_group = "Sample",
+                      shape_group = "Sample",
+                      alpha = NULL,
+                      col_pal = sample_pal,
+                      fill_pal = sample_pal,
+                      path_group = "interaction(Subject)",
+                      facet_formula = "Sample ~ .",
+                      axis1 = 1,
+                      axis2 = 2,
+                      seed = 123,
+                      permanova_terms = c("cluster_Dtp2"),
+                      metadata_dist_boxplot = NULL ,
+                      strata = "none") -> Time_out_saliva_clust[[tp]]
+}
+
+```
+
+```{r}
+Time_out_saliva_clust %>% 
+  plyr::ldply(., function(x) x$perm) %>%
+  rename(Time = '.id') %>% 
+  DT::datatable()
+```
+
+Plaque
+
+```{r,return = FALSE, message=FALSE, warning=FALSE}
+tmp = ps_up %>% 
+  subset_samples(Sample == "Plaque")
+group = "Time"
+Time_out_plaque_clust=NULL
+# Time_out <- vector("list", length(tmp %>%
+#                                get_variable(group) %>%
+#                                levels()))
+# names(Time_out) <- tmp %>%
+#   get_variable(group) %>% levels()
+
+for(tp in tmp %>%
+    get_variable(group) %>%
+    unique()){
+  
+  prune_samples(get_variable(tmp, group) == tp,
+                tmp) %>%
+    subset_taxa(Class != "UNCLASSIFIED") %>% 
+    transform_sample_counts(function(x) x/sum(x) * 1) %>% 
+    microViz::ps_mutate(cluster_Dtp2 = as.factor(cluster_Dtp2)) %>% 
+    compute_plot_beta(ps_up = .,
+                      beta = beta,
+                      color_group = "Sample",
+                      shape_group = "Sample",
+                      alpha = NULL,
+                      col_pal = sample_pal,
+                      fill_pal = sample_pal,
+                      path_group = "interaction(Subject)",
+                      facet_formula = "Sample ~ .",
+                      axis1 = 1,
+                      axis2 = 2,
+                      seed = 123,
+                      permanova_terms = c("cluster_Dtp2"),
+                      metadata_dist_boxplot = NULL ,
+                      strata = "none") -> Time_out_plaque_clust[[tp]]
+}
+
+```
+
+```{r}
+Time_out_plaque_clust %>% 
+  plyr::ldply(., function(x) x$perm) %>%
+  rename(Time = '.id') %>% 
+  DT::datatable()
+```
+
+```{r}
+save(Time_out_plaque_clust, Time_out_saliva_clust, Time_out_clust, Time_out, plaque, saliva, d_box, d_box_leg, 
+     ps_up,
+     sample_pal,
+     time_pal, sub_pal, sex_pal, sample_pal, period_pal,
+     file = here::here("../../data/processed_data/metaphlan/03_data.Rdata"))
+```
+
+
+```{r}
+sessionInfo()
+```

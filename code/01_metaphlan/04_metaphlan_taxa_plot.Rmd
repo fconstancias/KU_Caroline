@@ -1,0 +1,84 @@
+---
+title: " Study II - Network exploration of metaphlan profiles"
+author: "Florentin Constancias"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  html_document: 
+    toc: yes
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+rm(list = ls())
+gc()
+# invisible(lapply(paste0('package:', names(sessionInfo()$otherPkgs)), detach, character.only=TRUE, unload=TRUE))
+# options(java.parameters = "-Xmx80000m")
+```
+
+
+```{r setup2, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+##knitr::opts_chunk$set(cache=TRUE)
+# knitr::opts_chunk$set(echo = TRUE)
+# knitr::opts_chunk$set(dev = "ragg_png") # https://ragg.r-lib.org/index.html
+##knitr::opts_chunk$set(fig.width = 6) #https://r4ds.had.co.nz/graphics-for-communication.html#figure-sizing
+knitr::opts_chunk$set(fig.asp = 0.618)
+knitr::opts_chunk$set(fig.show = "hold")
+knitr::opts_chunk$set(fig.show = "70%")
+knitr::opts_chunk$set(fig.align = "center")
+```
+
+```{r setup3, include=FALSE}
+library(tidyverse)
+library(readxl)
+library(readr)
+library(speedyseq)
+library(microViz)
+```
+
+```{r setup4, include=FALSE}
+'%!in%' <- function(x,y)!('%in%'(x,y))
+
+source_dir = "https://raw.githubusercontent.com/fconstancias/DivComAnalyses/master/R/"
+# source_dir = "~/Documents/GitHub/DivComAnalyses/R/"
+
+source(paste0(source_dir,"phyloseq_taxa_tests.R"))
+source(paste0(source_dir,"phyloseq_normalisation.R"))
+source(paste0(source_dir,"phyloseq_heatmap.R"))
+source(paste0(source_dir,"phyloseq_varia.R"))
+source(paste0(source_dir,"phyloseq_microeco.R"))
+```
+
+```{r}
+load(here::here("../../data/processed_data/metaphlan/01_data.Rdata"))
+```
+
+```{r}
+pd <- position_dodge(0.3)
+```
+
+
+```{r}
+source("https://raw.githubusercontent.com/fconstancias/KU_Caroline/refs/heads/main/code/functions/phyloseq_functions.R")
+```
+
+
+```{r}
+ps_up %>% 
+  subset_samples(Sample == "Saliva" & Time == "TP1") %>% 
+  -> out
+```
+
+```{r}
+# save(out, 
+#      ps_up,
+#      sample_pal,
+#      time_pal, sub_pal, sex_pal, sample_pal, period_pal,
+#      file = here::here("../../data/processed_data/metaphlan/04_data.Rdata"))
+```
+
+
+```{r}
+sessionInfo()
+```

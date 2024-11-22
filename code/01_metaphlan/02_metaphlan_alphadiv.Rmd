@@ -1,0 +1,191 @@
+---
+title: " Study II - Alpha-diversity analyses of metaphlan profiles"
+author: "Florentin Constancias"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  html_document: 
+    toc: yes
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+rm(list = ls())
+gc()
+# invisible(lapply(paste0('package:', names(sessionInfo()$otherPkgs)), detach, character.only=TRUE, unload=TRUE))
+# options(java.parameters = "-Xmx80000m")
+```
+
+
+```{r setup2, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+##knitr::opts_chunk$set(cache=TRUE)
+# knitr::opts_chunk$set(echo = TRUE)
+# knitr::opts_chunk$set(dev = "ragg_png") # https://ragg.r-lib.org/index.html
+##knitr::opts_chunk$set(fig.width = 6) #https://r4ds.had.co.nz/graphics-for-communication.html#figure-sizing
+knitr::opts_chunk$set(fig.asp = 0.618)
+knitr::opts_chunk$set(fig.show = "hold")
+knitr::opts_chunk$set(fig.show = "70%")
+knitr::opts_chunk$set(fig.align = "center")
+```
+
+```{r setup3, include=FALSE}
+library(tidyverse)
+library(readxl)
+library(readr)
+library(speedyseq)
+library(microViz)
+```
+
+```{r setup4, include=FALSE}
+'%!in%' <- function(x,y)!('%in%'(x,y))
+
+source_dir = "https://raw.githubusercontent.com/fconstancias/DivComAnalyses/master/R/"
+# source_dir = "~/Documents/GitHub/DivComAnalyses/R/"
+
+source(paste0(source_dir,"phyloseq_normalisation.R"))
+source(paste0(source_dir,"phyloseq_alpha.R"))
+source(paste0(source_dir,"phyloseq_varia.R"))
+```
+
+
+```{r}
+load(here::here("../../data/processed_data/metaphlan/01_data.Rdata"))
+```
+
+```{r, include=TRUE}
+source("https://raw.githubusercontent.com/fconstancias/KU_Caroline/refs/heads/main/code/functions/phyloseq_functions.R")
+
+# compute_plot_alpha()
+# details:
+
+#' @title Compute Alpha Diversity Plot and Statistical Summaries
+#' @description
+#' This function generates plots and statistical summaries for alpha diversity measures 
+#' over time across different sample groups. The function returns a list containing summary
+#' statistics, plots, and results from statistical tests.
+#' @author Florentin Constancias
+#' @param alpha_long_df Data frame in long format containing alpha diversity values. 
+#'        Should have columns specified by `alpha_measures`, `x`, `y`, `color_point`, etc.
+#' @param alpha_measures Character vector of alpha diversity measures to analyze and plot.
+#' @param pd Position dodge to adjust plot element spacing (default is 0.3).
+#' @param x Character string for x-axis variable (e.g., "Time").
+#' @param y Character string for y-axis variable (e.g., "value").
+#' @param color_point Column name for coloring points (e.g., "Subject").
+#' @param shape_point Column name for point shape (e.g., "Sample").
+#' @param group_point Column name for grouping points (e.g., "interaction(Sample,Subject)").
+#' @param group_boxplot Column name for grouping boxplot elements (e.g., "interaction(Sample,Time)").
+#' @param group_line Column name for grouping line elements (e.g., "Subject").
+#' @param facet_formula Formula for faceting plots (default is "alphadiversiy ~ Sample + cluster_Dtp2").
+#' @param col_pal Color palette for points and lines.
+#' @param fill_pal Fill palette for boxplots.
+#' @param stat_formula Formula for statistical testing (default is "value ~ Time").
+#' @param anova_test_formula Formula for ANOVA testing (default is "value ~ Time*Sample + Error(Subject/(Time*Sample))").
+#' @param group_by_stats Variables for grouping in statistical comparisons.
+#' @param padjust_method Method for p-value adjustment (default is "fdr").
+#' @param stat_paired Logical; whether statistical tests are paired (default is FALSE).
+#' @param ref_group_stat Reference group for pairwise statistical tests.
+#' @return A list with summary data frames, ggplot objects, and statistical test results.
+
+```
+
+# Alpha div exploration:
+
+```{r}
+# alpha_measures = c("observed", "diversity_shannon", "diversity_inverse_simpson", "diversity_coverage", "evenness_pielou")
+alpha_measures = c("observed", "diversity_shannon", "diversity_inverse_simpson", "evenness_pielou")
+
+
+ps_up %>% 
+  subset_taxa(Class != "UNCLASSIFIED") %>% 
+  transform_sample_counts(function(x) x/sum(x) * 1) %>%
+  phyloseq_alphas() -> alphas
+
+
+# alphas
+```
+
+
+```{r}
+alphas %>% 
+  pivot_longer(cols = all_of(alpha_measures), values_to = "value", names_to = 'alphadiversiy', values_drop_na  = TRUE) %>%
+  mutate(alphadiversiy = fct_relevel(alphadiversiy, alpha_measures)) -> alpha_long_df
+
+
+# alpha_long_df
+```
+
+```{r}
+alpha_long_df %>% 
+  phyloseq_explore_alpha(facet_formula = "alphadiversiy ~ Sample",
+                     group_by_stats = c("alphadiversiy", "Sample"),
+                     stat_formula = "value ~ Time",
+                     padjust_method = "fdr",
+                     # stat_paired = FALSE,
+                     ref_group_stat = "TP1") -> out_sample_time
+
+ls(out_sample_time)
+```
+
+
+```{r}
+out_sample_time$alpha_plot
+```
+
+```{r}
+out_sample_time$anova %>% 
+  DT::datatable()
+```
+
+```{r}
+out_sample_time$wilcox.test_stat %>% 
+  DT::datatable()
+```
+
+```{r}
+alpha_long_df %>% 
+  compute_plot_alpha(facet_formula = "alphadiversiy ~ Sample + cluster_Dtp2",
+                     group_by_stats = c("alphadiversiy", "Sample", "cluster_Dtp2"),
+                     stat_formula = "value ~ Time",
+                     padjust_method = "fdr",
+                     # stat_paired = FALSE,
+                     ref_group_stat = "TP1") -> out_sample_time_clust
+
+
+out_sample_time_clust$alpha_plot
+```
+
+
+```{r}
+out_sample_time_clust$wilcox.test_stat %>% 
+  DT::datatable()
+```
+
+# Correlate alpha with metadata:
+
+Then alpha diversity at baseline associated/predicts with bleeding + plaque at TP2 TP3:
+
+```{r, fig.width = 8,  fig.asp = 1}
+alphas %>%
+  correlate_alpha(colnums_to_plot = c("diversity_shannon", "diversity_inverse_simpson", "evenness_pielou",
+                                      "mean_bleeding", "mean_plaque", "Sample", "Time"), colour =  "Time",
+                  method = "spearman") -> alpha_corr
+
+alpha_corr
+```
+
+
+```{r}
+save(out_sample_time_clust,
+     out_sample_time,
+     alpha_corr,
+     ps_up,
+     sample_pal,
+     time_pal, sub_pal, sex_pal, sample_pal,
+     file = here::here("../../data/processed_data/metaphlan/02_data.Rdata"))
+```
+
+
+```{r}
+sessionInfo()
+```

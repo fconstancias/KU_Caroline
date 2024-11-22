@@ -1,0 +1,567 @@
+---
+title: " Study II - Importing metaphlan profiles into phyloseq"
+author: "Florentin Constancias"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  html_document: 
+    toc: yes
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+rm(list = ls())
+gc()
+
+# invisible(lapply(paste0('package:', names(sessionInfo()$otherPkgs)), detach, character.only=TRUE, unload=TRUE))
+
+# options(java.parameters = "-Xmx80000m")
+```
+
+
+```{r setup2, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+##knitr::opts_chunk$set(cache=TRUE)
+# knitr::opts_chunk$set(echo = TRUE)
+# knitr::opts_chunk$set(dev = "ragg_png") # https://ragg.r-lib.org/index.html
+##knitr::opts_chunk$set(fig.width = 6) #https://r4ds.had.co.nz/graphics-for-communication.html#figure-sizing
+knitr::opts_chunk$set(fig.asp = 0.618)
+knitr::opts_chunk$set(fig.show = "hold")
+knitr::opts_chunk$set(fig.show = "70%")
+knitr::opts_chunk$set(fig.align = "center")
+```
+
+```{r setup3, include=FALSE}
+library(tidyverse)
+library(readxl)
+library(readr)
+
+source("https://raw.githubusercontent.com/fconstancias/metabaRpipe-source/master/Rscripts/functions.R")
+source("https://raw.githubusercontent.com/fconstancias/DivComAnalyses/master/R/phyloseq_biobakery_functions.R")
+source("https://raw.githubusercontent.com/fconstancias/DivComAnalyses/master/R/phyloseq_varia.R") 
+
+source_dir = "https://raw.githubusercontent.com/fconstancias/DivComAnalyses/master/R/"
+# source_dir = "~/Documents/GitHub/DivComAnalyses/R/"
+
+source(paste0(source_dir,"phyloseq_biobakery_functions.R"))
+source(paste0(source_dir,"phyloseq_varia.R"))
+
+```
+
+# Import and get ready:
+
+```{r}
+here::here("../../data/processed_data/metaphlan/merged_abundance_table.txt") %>% 
+  metaphlan_2phyloseq(merged_metaphlan = .) -> ps
+
+ps %>% 
+  sample_names() %>% 
+  head()
+```
+
+```{r}
+ps %>% 
+  sample_names() %>% 
+  str_extract(.,"[^_]+") %>% 
+  str_remove_all(., "[A-Z]")  -> sample_names(ps)
+```
+
+```{r}
+here::here("../../data/processed_data/metaphlan/Metadata_Deerland_Study.xlsx") %>% 
+  read_excel(sheet = "Trial2") -> meta
+
+meta %>% 
+  DT::datatable()
+```
+
+```{r}
+ps %>% 
+  physeq_add_metadata(metadata = meta,
+                      sample_column = "ID") -> ps
+```
+
+phyloseq doenst like numbers in sample names, just add S_ to those:
+
+```{r}
+ps %>% 
+  sample_names() %>% 
+  paste0("S_", .) -> sample_names(ps)
+```
+
+```{r}
+ps
+```
+
+```{r}
+ps %>% 
+  microViz::ps_mutate(Time = factor(Time, levels = c("TP1", "TP2", "TP3")),
+                      Period = Time,
+                      time = parse_number(as.character(Time)),
+                      Sample_Type =  Sample,
+                      Period = recode(Period, TP1  = "Baseline"),
+                      Sex = recode(sex, Male = 1, Female = 2),
+                      Sample = factor(Sample, levels = c("Saliva", "Plaque")),
+                      Subject = fct_relevel(Subject, "D01"),
+                      Sample_Time = paste0(Sample,"_", Time) 
+  ) -> ps_up
+
+ps_up %>% 
+  sample_data(.) %>% 
+  data.frame() -> dfdf
+
+dfdf %>% 
+  DT::datatable()
+```
+
+
+```{r}
+ps_up %>% 
+  generate_color_palette(var = "Time",
+                         pal = "jama",
+                         print = TRUE) -> time_pal
+
+ps_up %>% 
+  generate_color_palette(var = "Period",
+                         pal = "jama",
+                         print = TRUE) -> period_pal
+
+ps_up %>% 
+  generate_color_palette(var = "Sample_Type",
+                         pal = "jco",
+                         print = TRUE) -> sample_pal
+
+ps_up %>% 
+  generate_color_palette(var = "sex",
+                         pal = "uchicago",
+                         print = TRUE) -> sex_pal
+
+ps_up %>% 
+  generate_color_palette(var = "Subject",
+                         pal = "randomcoloR",
+                         print = TRUE, runTsne = TRUE) -> sub_pal
+
+```
+
+# Explore metadata -> to add cluster:
+
+```{r}
+pd <- position_dodge(0)
+
+
+ps_up %>% 
+  sample_data() %>% 
+  data.frame() %>% 
+  rownames_to_column("sample_id") -> meta
+
+meta %>% 
+  select(sample_id, Sample, Subject, Time, time, starts_with("mean")) %>% 
+  pivot_longer(cols = starts_with("mean")) -> meta_long
+
+
+meta_long %>% 
+  filter(Sample == "Plaque") %>% 
+  ggplot(data = ., aes(x=Time, y=value)) +
+  geom_point(aes(color = Subject),  position = pd) +
+  geom_line(aes(group=Subject), position = pd, linetype = "dashed", color = "black", linewidth = 0.08) +
+  geom_boxplot(aes(group=Time, fill = NULL, color = NULL), outlier.shape = NA, alpha = 0.4) +
+  # ggtitle("Plaque development during sugar rinsing  \n & oral hygiene interuption") +
+  facet_grid(name ~ Sample, scales = "free_y", switch = "y") +
+  theme(strip.placement = "outside") +
+  # ylab("Mean plaque (Quigley Hein plaque index)") + xlab("Time of sampling") + 
+  scale_x_discrete(breaks = c("TP1", "TP2", "TP3"), labels = c("Baseline", 
+                                                               "2 weeks treatment", "4 weeks")) + theme_linedraw() + theme(strip.placement = "outside") + xlab(NULL) + ylab(NULL) + theme(legend.position = "none") + scale_color_manual(values = sub_pal) -> p_meta
+
+p_meta
+```
+
+```{r}
+meta_long %>% 
+  group_by(name, Subject) %>% 
+  arrange(time) %>%
+  mutate(delta = value - first(value)) -> meta_long_delta
+
+meta_long_delta %>% 
+  filter(Sample == "Plaque") %>% 
+  ggplot(data = ., aes(x=Time, y=delta)) +
+  geom_point(aes(color = Subject),  position = pd) +
+  geom_line(aes(group=Subject), position = pd, linetype = "dashed", color = "black", linewidth = 0.08) +
+  geom_boxplot(aes(group=Time, fill = NULL, color = NULL), outlier.shape = NA, alpha = 0.4) +
+  # ggtitle("Plaque development during sugar rinsing  \n & oral hygiene interuption") +
+  facet_grid(name ~ Sample, scales = "free_y", switch = "y") +
+  theme(strip.placement = "outside") +
+  # ylab("Mean plaque (Quigley Hein plaque index)") + xlab("Time of sampling") + 
+  scale_x_discrete(breaks = c("TP1", "TP2", "TP3"), labels = c("Baseline", 
+                                                               "2 weeks treatment", "4 weeks")) + theme_linedraw() + theme(strip.placement = "outside") + xlab(NULL) + ylab(NULL) + theme(legend.position = "none") + scale_color_manual(values = sub_pal) -> p_meta_delta
+
+p_meta_delta
+```
+
+```{r}
+meta_long %>% 
+  group_by(name, Subject) %>% 
+  arrange(time) %>%
+  mutate(ratio = value / first(value)) -> meta_long_ratio
+
+meta_long_ratio %>% 
+  filter(Sample == "Plaque") %>% 
+  ggplot(data = ., aes(x=Time, y=ratio)) +
+  geom_point(aes(color = Subject),  position = pd) +
+  geom_line(aes(group=Subject), position = pd, linetype = "dashed", color = "black", linewidth = 0.08) +
+  geom_boxplot(aes(group=Time, fill = NULL, color = NULL), outlier.shape = NA, alpha = 0.4) +
+  # ggtitle("Plaque development during sugar rinsing  \n & oral hygiene interuption") +
+  facet_grid(name ~ Sample, scales = "free_y", switch = "y") +
+  theme(strip.placement = "outside") +
+  # ylab("Mean plaque (Quigley Hein plaque index)") + xlab("Time of sampling") + 
+  scale_x_discrete(breaks = c("TP1", "TP2", "TP3"), labels = c("Baseline", 
+                                                               "2 weeks treatment", "4 weeks")) + theme_linedraw() + theme(strip.placement = "outside") + xlab(NULL) + ylab(NULL) + theme(legend.position = "none") + scale_color_manual(values = sub_pal) -> p_meta_ratio
+
+p_meta_ratio
+```
+
+```{r}
+meta %>% 
+  filter(Sample == "Plaque") %>% 
+  select(Subject, Time, time, mean_plaque, mean_bleeding) %>% 
+  pivot_longer(cols = mean_plaque:mean_bleeding) %>% 
+  group_by(name, Subject) %>% 
+  arrange(time, Subject) %>%
+  mutate(delta = value- first(value)) %>% 
+  select(-value) %>% 
+  group_by(Subject) %>% 
+  arrange(time) %>%
+  pivot_wider(names_from = "name", values_from = "delta") %>% 
+  ggplot(data = ., aes(x=mean_plaque, y=mean_bleeding)) +
+  geom_point(aes(color = Time)) +
+  geom_path(aes(group=Subject),  linetype = "dashed", color = "black", linewidth = 0.08, 
+            arrow = arrow(
+              angle = 30, length = unit(0.15, "inches"),
+              ends = "last", type = "open"
+            )) -> clin_xy_d
+
+clin_xy_d
+```
+
+```{r}
+# meta %>% 
+#   filter(Sample == "Plaque") %>% 
+#   select(Subject, Time, time, mean_plaque, mean_bleeding) %>% 
+#   pivot_longer(cols = mean_plaque:mean_bleeding) %>% 
+#   group_by(name, Subject) %>% 
+#   arrange(time, Subject) %>%
+#   mutate(delta = value- first(value)) %>% 
+#   
+
+# meta_long_delta %>% 
+#   dplyr::filter(name == "mean_bleeding") -> bleeding_only
+# 
+# bleeding_only %>% 
+#   pull(delta) %>% 
+#   cut_number(., n = 3, labels = c("Low", "Medium", "High")) %>% 
+#   cbind(.,
+#         bleeding_only)
+
+
+```
+
+```{r}
+meta %>% 
+  filter(Sample == "Plaque") %>% 
+  select(Subject, Time, time, mean_plaque, mean_bleeding) %>% 
+  pivot_longer(cols = mean_plaque:mean_bleeding) %>% 
+  group_by(name, Subject) %>% 
+  arrange(time, Subject) %>%
+  pivot_wider(names_from = "name", values_from = "value") %>% 
+  ggplot(data = ., aes(x=mean_plaque, y=mean_bleeding)) +
+  geom_point(aes(color = Time)) +
+  geom_path(aes(group=Subject),  linetype = "dashed", color = "black", linewidth = 0.08, 
+            arrow = arrow(
+              angle = 30, length = unit(0.15, "inches"),
+              ends = "last", type = "open"
+            )) -> clin_xy
+clin_xy
+```
+
+```{r}
+meta %>% 
+  filter(Sample == "Plaque") %>% 
+  select(mean_plaque, mean_bleeding) -> tmp
+
+tmp %>% 
+  kmeans(.,3,  nstart = 25) -> km
+
+
+factoextra::fviz_cluster(km, data = tmp,
+                         # palette = c("#2E9FDF"), 
+                         geom = "point",
+                         ellipse.type = "convex", 
+                         ggtheme = theme_bw()
+) -> kall
+
+kall$data %>% 
+  rename(cluster_all = cluster) -> kall$data
+
+kall
+```
+
+```{r}
+
+# clin_xy_d$data %>% 
+#   left_join(., 
+#             result_clust,
+#             by = c("Subject" = "name")) %>% 
+#   # pivot_wider(names_from = "name", values_from = "delta") %>% 
+#   ggplot(data = ., aes(x=mean_plaque, y=mean_bleeding)) +
+#   geom_point(aes(color = cluster_Dtp3, shape = cluster_Dtp3)) +
+#   geom_path(aes(group=Subject),  linetype = "dashed", color = "black", linewidth = 0.08, 
+#             arrow = arrow(
+#               angle = 30, length = unit(0.15, "inches"),
+#               ends = "last", type = "open"
+#             )) -> pclust_3
+# 
+# pclust_3
+```
+
+```{r}
+meta %>% 
+  filter(Sample == "Plaque", 
+         Period == "Baseline") %>% 
+  rownames_to_column("toto") %>% 
+  column_to_rownames("Subject") %>% 
+  select(mean_plaque, mean_bleeding) -> tmp
+
+tmp %>% 
+  kmeans(.,3,  nstart = 25) -> km
+
+
+factoextra::fviz_cluster(km, data = tmp ,
+                         # palette = c("#2E9FDF"), 
+                         geom = "text", repel = TRUE, show.clust.cent = FALSE,
+                         ellipse.type = "convex", 
+                         ggtheme = theme_bw()
+) + ggtitle("Baseline") -> kbase
+
+kbase$data %>% 
+  rename(cluster_base = cluster) -> kbase$data
+
+kbase
+```
+
+```{r}
+meta_long_delta %>% 
+  filter(Sample == "Plaque", 
+         Time == "TP2") %>% 
+  select(-value) %>% 
+  pivot_wider(names_from = "name", values_from = "delta") %>% 
+  column_to_rownames("Subject") %>% 
+  select(mean_plaque, mean_bleeding) -> tmp
+
+tmp %>% 
+  kmeans(.,3,  nstart = 25) -> km
+
+
+factoextra::fviz_cluster(km, data = tmp ,
+                         # palette = c("#2E9FDF"), 
+                         geom = "text", repel = TRUE, show.clust.cent = FALSE,
+                         ellipse.type = "convex", 
+                         ggtheme = theme_bw()
+) + ggtitle("Delta TP2") -> kdtp2
+
+kdtp2$data %>% 
+  rename(cluster_Dtp2 = cluster) -> kdtp2$data
+```
+
+```{r}
+meta_long_ratio %>% 
+  filter(Sample == "Plaque", 
+         Time == "TP2") %>% 
+  select(-value) %>% 
+  pivot_wider(names_from = "name", values_from = "ratio") %>% 
+  mutate_if(is.numeric, list(~na_if(., Inf))) %>% 
+  column_to_rownames("Subject") %>% 
+  select(mean_plaque, mean_bleeding) %>% 
+  drop_na(.) -> tmp
+
+tmp %>% 
+  kmeans(.,3,  nstart = 25) -> km
+
+
+factoextra::fviz_cluster(km, data = tmp ,
+                         # palette = c("#2E9FDF"), 
+                         geom = "text", repel = TRUE, show.clust.cent = FALSE,
+                         ellipse.type = "convex", 
+                         ggtheme = theme_bw()
+) + ggtitle("Ratio TP2") -> krtp2
+
+krtp2$data %>% 
+  rename(cluster_Rtp2 = cluster) -> krtp2$data
+
+kdtp2
+```
+
+```{r}
+meta %>% 
+  filter(Sample == "Plaque", 
+         Period == "TP2") %>% 
+  rownames_to_column("toto") %>% 
+  column_to_rownames("Subject") %>% 
+  select(mean_plaque, mean_bleeding) -> tmp
+
+tmp %>% 
+  kmeans(.,3,  nstart = 25) -> km
+
+
+factoextra::fviz_cluster(km, data = tmp ,
+                         # palette = c("#2E9FDF"), 
+                         geom = "text", repel = TRUE, show.clust.cent = FALSE,
+                         ellipse.type = "convex", 
+                         ggtheme = theme_bw()
+) + ggtitle("TP2") -> ktp2
+
+ktp2$data %>% 
+  rename(cluster_tp2 = cluster) -> ktp2$data
+
+ktp2
+```
+
+```{r}
+meta_long_delta %>% 
+  filter(Sample == "Plaque", 
+         Time == "TP3") %>% 
+  select(-value) %>% 
+  pivot_wider(names_from = "name", values_from = "delta") %>% 
+  column_to_rownames("Subject") %>% 
+  select(mean_plaque, mean_bleeding) -> tmp
+
+tmp %>% 
+  kmeans(.,3,  nstart = 25) -> km
+
+
+factoextra::fviz_cluster(km, data = tmp ,
+                         # palette = c("#2E9FDF"), 
+                         geom = "text", repel = TRUE, show.clust.cent = FALSE,
+                         ellipse.type = "convex", 
+                         ggtheme = theme_bw()
+) + ggtitle("TP3")  -> kdtp3
+
+kdtp3$data %>% 
+  rename(cluster_Dtp3 = cluster) -> kdtp3$data
+
+kdtp3
+```
+
+```{r}
+
+kdtp3$data %>% 
+  select(-x,-y) %>% 
+  full_join(., kdtp2$data %>% 
+              select(-x,-y) ) -> result_clust
+
+clin_xy_d$data %>% 
+  left_join(., 
+            result_clust,
+            by = c("Subject" = "name")) %>% 
+  # pivot_wider(names_from = "name", values_from = "delta") %>% 
+  ggplot(data = ., aes(x=mean_plaque, y=mean_bleeding)) +
+  geom_point(aes(color = cluster_Dtp3, shape = cluster_Dtp3)) +
+  geom_path(aes(group=Subject),  linetype = "dashed", color = "black", linewidth = 0.08, 
+            arrow = arrow(
+              angle = 30, length = unit(0.15, "inches"),
+              ends = "last", type = "open"
+            )) -> pclust_3
+
+pclust_3
+```
+
+```{r}
+clin_xy_d$data %>% 
+  left_join(., 
+            result_clust,
+            by = c("Subject" = "name")) %>% 
+  # pivot_wider(names_from = "name", values_from = "delta") %>% 
+  ggplot(data = ., aes(x=mean_plaque, y=mean_bleeding)) +
+  geom_point(aes(color = cluster_Dtp2, shape = cluster_Dtp2)) +
+  geom_path(aes(group=Subject),  linetype = "dashed", color = "black", linewidth = 0.08, 
+            arrow = arrow(
+              angle = 30, length = unit(0.15, "inches"),
+              ends = "last", type = "open"
+            )) -> pclust_2
+
+pclust_2
+```
+
+```{r}
+
+meta_long_delta %>% 
+  select(-value) %>% 
+  pivot_wider(names_from = "name", values_from = "delta") %>% 
+  rename_at(vars(starts_with('mean')), funs(paste0('delta_', .))) %>% 
+  select(sample_id, delta_mean_plaque, delta_mean_bleeding) %>% 
+  full_join(., 
+            meta_long_ratio %>% 
+              select(-value) %>% 
+              pivot_wider(names_from = "name", values_from = "ratio") %>% 
+              rename_at(vars(starts_with('mean')), funs(paste0('ratio_', .))) %>% 
+              select(sample_id, ratio_mean_plaque, ratio_mean_bleeding)) -> tmp
+
+
+ps_up %>% 
+  sample_data() %>% 
+  data.frame() %>% 
+  rownames_to_column("sample_id") %>% 
+  left_join(.,
+            tmp) %>% 
+  column_to_rownames("sample_id") -> sample_data(ps_up)
+
+
+ps_up %>% 
+  sample_data() %>% 
+  data.frame() %>% 
+  rownames_to_column("tmp") %>% 
+  left_join(.,
+            result_clust,
+            by = c("Subject" = "name")) %>% 
+  column_to_rownames("tmp") -> sample_data(ps_up)
+
+```
+
+Maybe also add the delta and ratio to all samples.
+
+```{r}
+# ggscatter(
+#   ind.coord, x = "Dim.1", y = "Dim.2", 
+#   color = "cluster", palette = "npg", ellipse = TRUE, ellipse.type = "convex",
+#   shape = "Species", size = 1.5,  legend = "right", ggtheme = theme_bw(),
+#   xlab = paste0("Dim 1 (", variance.percent[1], "% )" ),
+#   ylab = paste0("Dim 2 (", variance.percent[2], "% )" )
+# ) +
+#   stat_mean(aes(color = cluster), size = 4)
+```
+
+```{r}
+ps_up %>% 
+   microViz::ps_mutate(cluster_Dtp2 = as.factor(cluster_Dtp2)) -> ps_up
+
+```
+
+
+```{r}
+save(period_pal,
+     sample_pal,
+     sex_pal,
+     sub_pal,
+     time_pal,
+     p_meta_delta, p_meta,p_meta_ratio, 
+     ps_up, clin_xy, clin_xy_d, pclust_3, pclust_2, file = here::here("../../data/processed_data/metaphlan/01_data.Rdata"))
+```
+
+
+```{r}
+saveRDS(object = ps_up, file = here::here("../../data/processed_data/metaphlan/metaphlan4.1.1_phyloseq.RDS"))
+```
+
+
+
+```{r}
+
+sessionInfo()
+```
