@@ -172,26 +172,9 @@ Function `phyloseq_diff_abundance()` allows to run different methods, here are t
 
 ```
 
+To test: https://github.com/yiluheihei/microbiomeMarker/issues/62 `compareDA`
 
 ## Test differences at Baseline between Saliva and Plaque microbiome:
-
-```{r, message=TRUE}
-ps_up %>% 
-  subset_samples(Time == "TP1") %>% 
-  phyloseq_diff_abundance(ps_tmp = .,
-                          approach = c("run_lefse", "run_ancom", "trans_diff_rf", "maaslin3", "ancombc2", "linda"),
-                          glom = "Species",
-                          taxa_rank = "all", #"OTU"
-                          comp_group = "Sample",
-                          formula =  "~ Sample",
-                          ancombc2_fix_formula = "Sample",
-                          ancombc2_rand_formula = NULL,
-                          ancombc2_group = "Sample",
-                          linda_formula = NULL,
-                          linda_comp_group = comp_group,
-                          palette = sample_pal,
-                          unclassified_name = "UNCLASSIFIED") -> TP1
-```
 
 
 ```{r, message=TRUE}
@@ -200,9 +183,9 @@ ps_up %>%
   phyloseq_diff_abundance(ps_tmp = .,
                           approach = c("run_lefse"),
                           glom = "Species",
-                          lefse_lda_cutoff = 4,
-                          pvalue_cutoff = 0.001,
-                          taxa_rank = "all", #"OTU"
+                          lefse_lda_cutoff = 4, # can be adapted
+                          pvalue_cutoff = 0.001, # can be adapted
+                          taxa_rank = "all", 
                           comp_group = "Sample",
                           palette = sample_pal) -> lefse_TP1
 
@@ -210,10 +193,73 @@ ps_up %>%
 lefse_TP1$mmlefse_df %>% 
   DT::datatable()
 ```
+
+
 ```{r, fig.width = 7,  fig.asp = 1}
 lefse_TP1$mmlefse_p
 ```
 
+```{r, message=TRUE}
+ps_up %>% 
+  subset_samples(Time == "TP1") %>% 
+  phyloseq_diff_abundance(ps_tmp = .,
+                          approach = c("run_ancom"),
+                          glom = "Species",
+                          pvalue_cutoff = 0.05,
+                          taxa_rank = "all", #"OTU"
+                          comp_group = "Sample",
+                          palette = sample_pal) -> ancom_TP1
+
+# MicrobiotaProcess::as.MPSE(ps_up)
+```
+
+```{r, message=TRUE}
+ps_up %>% 
+  phyloseq_diff_abundance(ps_tmp = .,
+                          approach = c("run_ancom"),
+                          glom = "Species",
+                          pvalue_cutoff = 0.05,
+                          ancom_confounders = c("Time"),
+                          taxa_rank = "all", #"OTU"
+                          comp_group = "Sample",
+                          palette = sample_pal) -> ancom_sample
+
+
+```
+
+## Identify markers between timepoints:
+
+```{r}
+ps_up %>% 
+  subset_samples(Sample_Type == "Saliva") %>% 
+  phyloseq_diff_abundance(ps_tmp = .,
+                          approach = c("run_ancom"),
+                          glom = "Species",
+                          ancom_confounders = "Subject",
+                          pvalue_cutoff = 0.05,
+                          taxa_rank = "all", #"OTU"
+                          comp_group = "Time",
+                          palette = time_pal) -> ancom_saliva
+
+
+ancom_saliva$mmancom_p
+```
+
+
+```{r}
+ps_up %>% 
+  phyloseq_diff_abundance(ps_tmp = .,
+                          approach = c("run_ancom"),
+                          glom = "Species",
+                          ancom_confounders = "Time",
+                          pvalue_cutoff = 0.05,
+                          taxa_rank = "all", #"OTU"
+                          comp_group = "Sample",
+                          palette = sample_pal) -> ancom_sample
+
+
+ancom_sample$mmancom_p
+```
 
 ## Exploring output : Lefse
 

@@ -51,6 +51,8 @@ phyloseq_diff_abundance <- function(ps_tmp = ps_up %>%  subset_samples(Sample ==
                                     density = "Quant",
                                     comp_group = "Time",
                                     
+                                    plot_top_sig = NULL,
+                                    
                                     palette = time_pal,
                                     pvalue_cutoff = 0.05,
                                     p_adjust = "BH",
@@ -158,7 +160,8 @@ phyloseq_diff_abundance <- function(ps_tmp = ps_up %>%  subset_samples(Sample ==
       
       ps_tmp %>%
         physeq_sel_tax_table(c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")) %>% 
-        subset_taxa(Kingdom != unclassified_name) %>% 
+        filter_tax_table(Kingdom != unclassified_name) %>% 
+        # subset_taxa(Kingdom != unclassified_name) %>% 
         transform_sample_counts(function(x) x/sum(x) * 100) %>% 
         filter_taxa(function(x){sum(x > 0) >  lefse_prv_cut*nsamples(ps_tmp)}, prune = TRUE) %>% 
         microbiomeMarker::run_lefse(group = comp_group, 
@@ -189,6 +192,65 @@ phyloseq_diff_abundance <- function(ps_tmp = ps_up %>%  subset_samples(Sample ==
       # save plot, mmlesfse and mmlefse_df
     }
     
+    if ("lefse"  %in% approach)
+    {
+      ########## ----- microeco lefse https://chiliubio.github.io/microeco_tutorial/model-based-class.html
+      
+      ps_tmp %>%
+        physeq_sel_tax_table(c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")) %>% 
+        # subset_taxa(Kingdom != unclassified_name) %>% 
+        filter_tax_table(Kingdom != unclassified_name) %>% 
+        transform_sample_counts(function(x) x/sum(x) * 100) %>% 
+        filter_taxa(function(x){sum(x > 0) >  lefse_prv_cut*nsamples(ps_tmp)}, prune = TRUE) %>% 
+        file2meco::phyloseq2meco(.) -> data
+      
+      t1 <- trans_diff$new(dataset = data, 
+                           lefse_min_subsam = lefse_sample_min, 
+                           lefse_sub_strict = lefse_multigrp_strat, 
+                           lefse_sub_alpha = NULL, 
+                           lefse_bootstrap_n= lefse_bootstrap_n, 
+                           boots = lefse_bootstrap_n,
+                           group_choose_paired = NULL,
+                           method = "lefse",
+                           filter_thres = 0, #default 0; the abundance threshold,
+                           alpha = pvalue_cutoff,
+                           group = comp_group, 
+                           lefse_taxa_rank = taxa_rank, 
+                           p_adjust_method = p_adjust,
+                           plot_pal = palette,
+                           n.cores = 4,
+                           lefse_subgroup = NULL)
+      
+      out$lefse$res_diff  <-  t1$res_diff
+      
+      if(is.null(plot_top_sig)){
+        t1$res_diff %>%  nrow() -> plot_top_sig
+        # print("toto")
+      }
+      
+      
+      # out$lefse$res_diff <- t1$res_diff
+      
+      out$lefse$g1 <- t1$plot_diff_bar(use_number = 1:plot_top_sig, color_values = palette, threshold = lefse_lda_cutoff)
+      # plot the abundance using same taxa in g
+      out$lefse$g2 <- t1$plot_diff_abund(select_taxa = t1$plot_diff_bar_taxa, plot_type = "barerrorbar",
+                                         add_sig = TRUE, errorbar_addpoint = FALSE, 
+                                         errorbar_color_black = TRUE, 
+                                         color_values = palette) # barerrorbar  ggboxplot
+      # now the y axis in g1 and g2 is same, so we can merge them
+      # remove g1 legend; remove g2 y axis text and ticks
+      out$lefse$g1 <- out$lefse$g1 + theme(legend.position = "none")
+      out$lefse$g2 <- out$lefse$g2 + theme(axis.text.y = element_blank(), 
+                                           axis.ticks.y = element_blank(), 
+                                           panel.border = element_blank()) + scale_y_continuous(trans='sqrt')
+      out$lefse$p <- out$lefse$g1 %>% aplot::insert_right(out$lefse$g2 )
+      
+      out$lefse$all <- clone(t1)
+      
+      
+    }
+    
+    
     
     if ("run_ancom"  %in% approach)
     {
@@ -197,7 +259,8 @@ phyloseq_diff_abundance <- function(ps_tmp = ps_up %>%  subset_samples(Sample ==
       
       ps_count %>%
         physeq_sel_tax_table(c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")) %>% 
-        subset_taxa(Kingdom != unclassified_name) %>% 
+        # subset_taxa(Kingdom != unclassified_name) %>% 
+        filter_tax_table(Kingdom != unclassified_name) %>% 
         filter_taxa(function(x){sum(x > 0) >  ancom_prv_cut*nsamples(ps_tmp)}, prune = TRUE) %>%   
         microbiomeMarker::run_ancom(group = comp_group, 
                                     pvalue_cutoff = pvalue_cutoff,
@@ -211,7 +274,7 @@ phyloseq_diff_abundance <- function(ps_tmp = ps_up %>%  subset_samples(Sample ==
       microbiomeMarker::marker_table(out$mmancom) %>%
         data.frame() -> out$mmancom_df
       
-      microbiomeMarker::plot_abundance(out$mmlefse, group = comp_group) -> out$mmlefse_abp
+      microbiomeMarker::plot_abundance(out$mmancom, group = comp_group) -> out$mmancom_abp
       
       # out$mmlefse_abp$data %>% 
       #   mutate(prop = abd / 1e+6) %>% 
@@ -238,13 +301,32 @@ phyloseq_diff_abundance <- function(ps_tmp = ps_up %>%  subset_samples(Sample ==
     # microbiomeMarker::marker_table(mmancombc) %>%
     #   data.frame() -> mmancombc_df
     
+    
+    ########## ----- microbiomeMarker::run_ancombc see: https://github.com/yiluheihei/microbiomeMarker/issues/97
+    
+    # ps_count %>%
+    #   physeq_sel_tax_table(c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")) %>% 
+    #   subset_taxa(Kingdom != unclassified_name) %>% 
+    #   # subset_taxa(Order != "unassigned") %>% 
+    #   microbiomeMarker::run_ancombc(group = comp_group, pvalue_cutoff = pvalue_cutoff,
+    #                               taxa_rank = taxa_rank, 
+    #                               confounders = ancom_confounders,
+    #                               p_adjust = p_adjust) -> mmancombc
+    # 
+    # microbiomeMarker::plot_ef_bar(mmancombc) + 
+    #   scale_fill_manual(values = palette, na.value = "grey10") -> mmancombc_p
+    # 
+    # microbiomeMarker::marker_table(mmancombc) %>%
+    #   data.frame() -> mmancombc_df
+    
     if ("ancombc2"  %in% approach)
     {
       ########## ----- ancombc2 https://www.bioconductor.org/packages/release/bioc/vignettes/ANCOMBC/inst/doc/ANCOMBC2.html
       
       ps_count %>% # accepts count & 
         physeq_sel_tax_table(c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")) %>% 
-        subset_taxa(Kingdom != unclassified_name) %>% 
+        # subset_taxa(Kingdom != unclassified_name) %>% 
+        filter_tax_table(Kingdom != unclassified_name) %>% 
         physeq_glom_rename(speedyseq = TRUE, taxrank = ifelse(taxa_rank == "all", "Species", taxa_rank), rename_ASV = ifelse(taxa_rank == "all", "Species", taxa_rank)) %>%
         ANCOMBC::ancombc2(data = ., tax_level = ifelse(taxa_rank == "all", "Species", taxa_rank), 
                           group = ancombc2_group , pairwise = ancombc2_pairwise, #group = "Time",
@@ -292,7 +374,6 @@ phyloseq_diff_abundance <- function(ps_tmp = ps_up %>%  subset_samples(Sample ==
         transform_sample_counts(function(x) x/sum(x) * 100) %>% 
         filter_taxa(function(x){sum(x > 0) > maaslin3_prv_cut*nsamples(ps_tmp)}, prune = TRUE) %>% 
         physeq_glom_rename(speedyseq = TRUE, taxrank = ifelse(taxa_rank == "all", "Species", taxa_rank), rename_ASV = ifelse(taxa_rank == "all", "Species", taxa_rank)) %>%
-        
         phyloseq_maaslin3(formula = maaslin3_formula,
                           fixed_effects =  maaslin3_fixed_effects, 
                           strata_effects = maaslin3_strata_effects,
@@ -328,7 +409,8 @@ phyloseq_diff_abundance <- function(ps_tmp = ps_up %>%  subset_samples(Sample ==
       ########## ----- microeco::linda
       
       ps_tmp %>% 
-        subset_taxa(Kingdom != unclassified_name) %>% 
+        # subset_taxa(Kingdom != unclassified_name) %>% 
+        filter_tax_table(Kingdom != unclassified_name) %>% 
         transform_sample_counts(function(x) x/sum(x) * 100) %>% 
         filter_taxa(function(x){sum(x > 0) > linda_prv_cut*nsamples(ps_tmp)}, prune = TRUE) %>% 
         file2meco::phyloseq2meco(.) -> data
@@ -357,7 +439,7 @@ phyloseq_diff_abundance <- function(ps_tmp = ps_up %>%  subset_samples(Sample ==
       
       
       out$linda$all <-  clone(t1)
-
+      
       # uses CLR?
       # using directly the linda package?
       
@@ -370,7 +452,8 @@ phyloseq_diff_abundance <- function(ps_tmp = ps_up %>%  subset_samples(Sample ==
       # error Error in serialize(data, node$con) : connection is not open
       
       ps_tmp %>% 
-        subset_taxa(Kingdom != unclassified_name) %>% 
+        # subset_taxa(Kingdom != unclassified_name) %>% 
+        filter_tax_table(Kingdom != unclassified_name) %>% 
         transform_sample_counts(function(x) x/sum(x) * 100) %>% 
         filter_taxa(function(x){sum(x > 0) > rf_prv_cut*nsamples(ps_tmp)}, prune = TRUE) %>% 
         file2meco::phyloseq2meco(.) -> data
@@ -463,7 +546,8 @@ phyloseq_diff_abundance <- function(ps_tmp = ps_up %>%  subset_samples(Sample ==
       # The ‘rf’ method depends on the random forest(Beck and Foster 2014; Yatsunenko et al. 2012) and the non-parametric test. The current method implements random forest by bootstrapping like the operation in LEfSe and employs the significant features as input. MeanDecreaseGini is selected as the indicator value in the analysis.
       
       ps_tmp %>% 
-        subset_taxa(Kingdom != unclassified_name) %>% 
+        # subset_taxa(Kingdom != unclassified_name) %>% 
+        filter_tax_table(Kingdom != unclassified_name) %>% 
         transform_sample_counts(function(x) x/sum(x) * 100) %>% 
         filter_taxa(function(x){sum(x > 0) > rf_prv_cut*nsamples(ps_tmp)}, prune = TRUE) %>% 
         file2meco::phyloseq2meco(.) -> data
@@ -482,12 +566,16 @@ phyloseq_diff_abundance <- function(ps_tmp = ps_up %>%  subset_samples(Sample ==
       t1$res_diff %>% 
         dplyr::filter(MeanDecreaseGini >= trans_diff_rf_MeanDecreaseGini_cutoff) -> t1$res_diff
       
-      t1$res_diff %>%  nrow() -> nsing
+      
+      if(is.null(plot_top_sig)){
+        t1$res_diff %>%  nrow() -> plot_top_sig
+      }
+      
       
       out$trans_diff_rf$res_diff <- t1$res_diff
       # plot the MeanDecreaseGini bar
       # group_order is designed to sort the groups
-      out$trans_diff_rf$g1 <- t1$plot_diff_bar(use_number = 1:nsing, color_values = palette)
+      out$trans_diff_rf$g1 <- t1$plot_diff_bar(use_number = 1:plot_top_sig, color_values = palette)
       # plot the abundance using same taxa in g
       out$trans_diff_rf$g2 <- t1$plot_diff_abund(select_taxa = t1$plot_diff_bar_taxa, plot_type = "barerrorbar", add_sig = TRUE, errorbar_addpoint = FALSE, errorbar_color_black = TRUE, color_values = palette) # barerrorbar  ggboxplot
       # now the y axis in g1 and g2 is same, so we can merge them
