@@ -88,6 +88,35 @@ below the Arguments of the function phyloseq_top_heatmap_barplot() + default val
 
 ```
 
+```{r, message=TRUE}
+require(MicrobiotaProcess)
+
+ps_up %>% subset_samples(Sample == "Saliva")
+MicrobiotaProcess::as.MPSE() -> mpse
+
+f.box <- mouse.time.mpse %>%
+         mp_plot_diff_boxplot(
+           .group = time,
+         ) %>%
+         set_diff_boxplot_color(
+           values = c("deepskyblue", "orange"),
+           guide = guide_legend(title=NULL)
+         )
+
+f.bar <- mouse.time.mpse %>%
+         mp_plot_diff_boxplot(
+           taxa.class = c(Genus, OTU), # select the taxonomy level to display
+           group.abun = TRUE, # display the mean abundance of each group
+           removeUnknown = TRUE, # whether mask the unknown taxa.
+         ) %>%
+         set_diff_boxplot_color(
+           values = c("deepskyblue", "orange"),
+           guide = guide_legend(title=NULL)
+         )
+
+aplot::plot_list(f.box, f.bar)
+```
+
 Run the function:
 
 ```{r}
@@ -176,934 +205,132 @@ To test: https://github.com/yiluheihei/microbiomeMarker/issues/62 `compareDA`
 
 ## Test differences at Baseline between Saliva and Plaque microbiome:
 
-
 ```{r, message=TRUE}
 ps_up %>% 
   subset_samples(Time == "TP1") %>% 
   phyloseq_diff_abundance(ps_tmp = .,
                           approach = c("run_lefse"),
                           glom = "Species",
-                          lefse_lda_cutoff = 4, # can be adapted
-                          pvalue_cutoff = 0.001, # can be adapted
                           taxa_rank = "all", 
                           comp_group = "Sample",
                           palette = sample_pal) -> lefse_TP1
+```
 
+The output is a list, which contains different objects:
 
+```{r, message=TRUE}
+ls(lefse_TP1)
+```
+
+Dataframe with differentially abundant taxa:
+
+```{r, message=TRUE}
 lefse_TP1$mmlefse_df %>% 
   DT::datatable()
 ```
 
+Plot. There is a lot here:
 
-```{r, fig.width = 7,  fig.asp = 1}
+```{r, fig.width = 27,  fig.asp = 1}
 lefse_TP1$mmlefse_p
 ```
+
+
+We could run the same test only at the Genus level (instead of all taxonomic levels) and only considerient highly significantly different taxa:
+
 
 ```{r, message=TRUE}
 ps_up %>% 
   subset_samples(Time == "TP1") %>% 
   phyloseq_diff_abundance(ps_tmp = .,
-                          approach = c("run_ancom"),
-                          glom = "Species",
-                          pvalue_cutoff = 0.05,
-                          taxa_rank = "all", #"OTU"
+                          approach = c("run_lefse"),
+                          glom = "Genus", # agglomerate data at the genus level
+                          taxa_rank = "Genus", # perform comparison at the genus level
+                          lefse_lda_cutoff = 4, # filter results so only strong differences are displayed 
+                          pvalue_cutoff = 0.001, # filter results so only strong differences are displayed 
                           comp_group = "Sample",
-                          palette = sample_pal) -> ancom_TP1
+                          palette = sample_pal) -> lefse_TP1
 
-# MicrobiotaProcess::as.MPSE(ps_up)
+
+lefse_TP1$mmlefse_p
 ```
 
-```{r, message=TRUE}
+We could also use ANCOM approach to identify differential abundant taxa and adjust for Time-based difference: 
+
+```{r, fig.height = 22 ,fig.asp = 0.8}
 ps_up %>% 
   phyloseq_diff_abundance(ps_tmp = .,
                           approach = c("run_ancom"),
                           glom = "Species",
-                          pvalue_cutoff = 0.05,
                           ancom_confounders = c("Time"),
                           taxa_rank = "all", #"OTU"
                           comp_group = "Sample",
                           palette = sample_pal) -> ancom_sample
 
-
-```
-
-## Identify markers between timepoints:
-
-```{r}
-ps_up %>% 
-  subset_samples(Sample_Type == "Saliva") %>% 
-  phyloseq_diff_abundance(ps_tmp = .,
-                          approach = c("run_ancom"),
-                          glom = "Species",
-                          ancom_confounders = "Subject",
-                          pvalue_cutoff = 0.05,
-                          taxa_rank = "all", #"OTU"
-                          comp_group = "Time",
-                          palette = time_pal) -> ancom_saliva
-
-
-ancom_saliva$mmancom_p
-```
-
-
-```{r}
-ps_up %>% 
-  phyloseq_diff_abundance(ps_tmp = .,
-                          approach = c("run_ancom"),
-                          glom = "Species",
-                          ancom_confounders = "Time",
-                          pvalue_cutoff = 0.05,
-                          taxa_rank = "all", #"OTU"
-                          comp_group = "Sample",
-                          palette = sample_pal) -> ancom_sample
-
-
 ancom_sample$mmancom_p
 ```
 
-## Exploring output : Lefse
 
-Dataframe:
+ `plot_taxa_selection()` to visualize further the differentially abundant tax:
 
 ```{r}
-TP1$mmlefse_df %>% 
-  DT::datatable()
-```
-Plot:
+plot_taxa_selection(diff_ab_out = lefse_TP1$mmlefse_df, 
+                    ps_tmp = ps_up %>% 
+                      subset_samples(Time == "TP1"),
+                    full_path_tax_res = TRUE, 
+                    plot_x = "Subject",
+                    diff_ab_filter = "ef_lda > 0 & padj <= 0.05", 
+                    taxa_sel_col = "feature",
+                    full_path_sel = "s__",
+                    full_path_row_to_col = "tmp",
+                    comp_group = "Sample") -> TP1_plots
 
-```{r, fig.width = 18,  fig.asp = 1.6}
-TP1$mmlefse_p 
+TP1_plots$heat
 ```
+
+
+```{r}
+TP1_plots$boxplot
+```
+
+
+## Test differences between time points in Saliva samples:
 
 ```{r, message=TRUE}
 ps_up %>% 
-  subset_samples(Time == "TP1") %>% 
+  subset_samples(Sample == "Saliva") %>% 
   phyloseq_diff_abundance(ps_tmp = .,
-                          approach = c("run_lefse"),
-                          glom = "Species",
-                          taxa_rank = "all", #"OTU"
-                          comp_group = "Sample",
-                          palette = sample_pal,
-                          unclassified_name = "UNCLASSIFIED") -> TP1
-```
-
-```{r, include=FALSE}
-TP1$mmlefse -> tmp
-
-TP1$mmlefse %>% 
-  marker_table() %>% 
-  data.frame() %>% 
-  filter(ef_lda >= 4 & padj <= 0.0001) ->  marker_table(tmp) 
-
-tmp %>% 
-  plot_ef_bar() + scale_fill_manual(values = sample_pal)
-
-# plot_ef_bar(tmp)
-```
-
-```{r}
-# TP1$mmlefse_p + coord_cartesian(xlim = c(4, 20))
-```
-
-```{r}
-ps_up %>% 
-  subset_samples(Time == "TP1") %>% 
-  phyloseq_diff_abundance(ps_tmp = .,
-                          approach = c("run_lefse"),
-                          glom = "Species",
-                          taxa_rank = "all", #"OTU"
-                          comp_group = "Sample",
                           lefse_multigrp_strat = TRUE,
-                          lefse_strict = "2",
-                          palette = sample_pal) -> TP1_lefse
+                          approach = c("run_lefse"),
+                          glom = "Species",
+                          taxa_rank = "all", 
+                          comp_group = "Time",
+                          palette = time_pal) -> lefse_saliva
 
 
-TP1_lefse$mmlefse_df %>% 
-  DT::datatable()
-```
-
-
-## Exploring output : 
-
-```{r}
-TP1$mmancom_p
-```
-
-## Exploring output : 
-
-```{r}
-TP1$trans_diff_rf$g1
-```
-
-## Exploring output : 
-
-```{r}
-TP1$maaslin3$maaslin3_lefse_plot
-```
-
-```{r}
-
-```
-
-
-
-```{r}
-ps_up %>% 
-  subset_samples(Time == "TP1") %>% 
-  taxa_list_boxplot(ps = ,
-                    tax_vector = taxa_sel,
-                    x =  "Sample",
-                    color = "Sample",
-                    palette = sample_pal,
-                    log10 = TRUE,
-                    log2 = FALSE,
-                    taxa_rank = "Species",
-                    unclassified_name = "UNCLASSIFIED") -> box_maaslin3
-
-box_maaslin3
-```
-
-## Exploring output : 
-
-
-```{r}
-TP1$trans_diff_rf$res_diff %>% 
-  rownames_to_column("feature") %>% 
-  # filter(grepl(feature, "__s"))
-  dplyr::filter(., grepl("s__",feature)) %>% 
-  tidyr::separate(feature,
-                  c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"),sep = "\\|") %>% 
-  mutate(across(everything(), gsub, pattern = "[a-s]__", replacement = "")) %>% 
-  select(MeanDecreaseGini, Species, P.unadj, P.adj) -> tmp_res_rf
+lefse_saliva$mmlefse_p
 ```
 
 
 ```{r}
-plot_taxa_selection(ps_tmp = ps_up %>% 
-                      subset_samples(Time == "TP1"),
-                    diff_ab_out = TP1$trans_diff_rf$res_diff ,
-                    diff_ab_filter = 'MeanDecreaseGini > 0.001 & P.adj <= 0.001',
-                    full_path_tax_res = TRUE,
-                    palette = sample_pal,
-                    facet_formula = "Phylum ~ Sample_Type") -> test
+plot_taxa_selection(diff_ab_out = lefse_saliva$mmlefse_df, 
+                    ps_tmp = ps_up %>% 
+                      subset_samples(Sample == "Saliva"),
+                    full_path_tax_res = TRUE, 
+                    plot_x = "Time",
+                    diff_ab_filter = "ef_lda > 0 & padj <= 0.05", 
+                    taxa_sel_col = "feature",
+                    full_path_sel = "s__",
+                    palette = time_pal,
+                    full_path_row_to_col = "tmp",
+                    comp_group = "Time") -> saliva_plots
 
-test$bar_plot
-```
-
-
-```{r}
-tmp_res_rf %>% 
-  pull(Species) %>% unique() -> taxa_sel
-
-ps_up %>% 
-  subset_samples(Time == "TP1") %>% 
-  taxa_list_boxplot(ps = ,
-                    tax_vector = taxa_sel,
-                    x =  "Sample",
-                    color = "Sample",
-                    palette = sample_pal,
-                    log10 = TRUE,
-                    log2 = FALSE,
-                    taxa_rank = "Species",
-                    unclassified_name = "UNCLASSIFIED") -> box_rf
-
-box_rf
-```
-
-
-
-```{r}
-# out$rf$res_feature_imp %>% 
-#   rownames_to_column("feature") %>% 
-#   # filter(grepl(feature, "__s"))
-#   dplyr::filter(., grepl("s__",feature)) %>% 
-#   tidyr::separate(feature,
-#                   c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"),sep = "\\|") %>% 
-#   mutate(across(everything(), gsub, pattern = "[a-s]__", replacement = "")) %>% 
-#   
-#   
-#   
-# dplyr::filter(feature, !grepl("RTB",TrackingPixel))
-```
-```{r}
-out$rf
-
-g1 <- out$plot_diff_bar(use_number = 1:100)
-# use Genus level for parameter taxa_level, if you want to use all taxa, change to "all"
-# nresam = 1 and boots = 1 represent no bootstrapping and use all samples directly
-t1 <- trans_diff$new(dataset = mt, method = "rf", group = "Group", taxa_level = "all", filter_thres = 0.05, nresam = 0.75, boots = 999)
-
-# plot the MeanDecreaseGini bar
-# group_order is designed to sort the groups
-g1 <- t1$plot_diff_bar(use_number = 1:100)
-# plot the abundance using same taxa in g
-g2 <- t1$plot_diff_abund(select_taxa = t1$plot_diff_bar_taxa, plot_type = "barerrorbar", add_sig = TRUE, errorbar_addpoint = TRUE, errorbar_color_black = TRUE)
-# now the y axis in g1 and g2 is same, so we can merge them
-# remove g1 legend; remove g2 y axis text and ticks
-g1 <- g1 + theme(legend.position = "none")
-g2 <- g2 + theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(), panel.border = element_blank())
-p <- g1 %>% aplot::insert_right(g2)
-p
-
+saliva_plots$heat
 ```
 
 ```{r}
-out$rf$res_feature_imp %>% 
-  filter(TP3.pval <= 0.05)
+saliva_plots$boxplot$Capnocytophaga_ochracea
 ```
-
-
-```{r}
-out$maaslin3_lefse_plot + facet_null() + facet_grid(. ~ model)
-```
-
-
-```{r}
-ps_up %>% 
-  physeq_glom_rename(speedyseq = TRUE, taxrank = taxa_rank, rename_ASV = taxa_rank) %>% 
-  phyloseq_maaslin3(formula = formula,
-                    fixed_effects = "Time",strata_effects = "Subject") -> maaslin3# random_effects = , group_effects = )
-
-
-```
-
-```{r}
-ps_up %>% 
-  physeq_glom_rename(speedyseq = TRUE, taxrank = taxa_rank, rename_ASV = taxa_rank) %>% 
-  phyloseq_maaslin3(formula = formula,
-                    fixed_effects = "Time",random_effects  = "Subject") -> maaslin3_rd# random_effects = , group_effects = )
-
-
-```
-
-```{r}
-########## ----- microeco::ancombc2 
-
-ps_count  %>% 
-  subset_taxa(Kingdom != unclassified_name) %>% 
-  phyloseq_diff(method = "ancombc2", taxa_level = ifelse(taxa_rank == "all", "Species",taxa_rank),  group = comp_group,  alpha = pvalue_cutoff, #fix_formula = comp_group,
-                p_adjust_method = p_adjust, plot_pal = palette) -> microeco_ancombc2
-
-microbiomeMarker::marker_table(mmancombc) %>%
-  data.frame() 
-########## ----- microeco::linda 
-
-ps_tmp %>% 
-  subset_taxa(Kingdom != unclassified_name) %>% 
-  transform_sample_counts(function(x) x/sum(x) * 100) %>% 
-  phyloseq_diff(method = "linda", linda_formula =  formula , taxa_level = ifelse(taxa_rank == "all", "Species",taxa_rank) ,group = NULL,  alpha = pvalue_cutoff, #fix_formula = comp_group,
-                p_adjust_method = p_adjust, plot_pal = palette) -> microeco_linda
-
-
-
-if (ancom_taxa_rank == "all")
-{
-  microbiomeMarker::marker_table(mmancom) %>%
-    data.frame() %>% 
-    filter(grepl("s__", feature)) %>% 
-    tidyr::separate(feature,
-                    c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"),sep = "\\|") %>% 
-    mutate(across(everything(), gsub, pattern = "[a-s]__", replacement = "")) %>% 
-    select(Species, ef_CLR_F_statistic, W, enrich_group) %>% 
-    mutate(ef_CLR_F_statistic = as.double(ef_CLR_F_statistic)) %>% 
-    arrange(enrich_group, -ef_CLR_F_statistic) -> diff_sp_genomes
-}else
-{
-  microbiomeMarker::marker_table(mmancom) %>%
-    data.frame() %>% 
-    pull(feature) -> diff_sp_genomes
-}
-
-########## ----- microeco::ancombc2
-
-ps_count %>% 
-  phyloseq_diff(method = "ancombc2", taxa_level = ancom_taxa_rank,  fix_formula = comp_group, alpha = 0.05) -> microeco_ancombc2
-
-microeco_ancombc2$res_diff %>% 
-  dplyr::filter(diff == "TRUE") %>%  # passed_ss == "TRUE"
-  dplyr::filter(., !grepl("Intercept", Factors)) %>% 
-  tidyr::separate(Taxa,
-                  c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"),sep = "\\|") %>% 
-  mutate(across(everything(), gsub, pattern = "[a-s]__", replacement = "")) %>% 
-  pull(Species) -> diff_sp_ancom_bc2
-
-ps_tmp %>% 
-  subset_taxa(Kingdom != unclassified_name) %>% # 
-  transform_sample_counts(function(x) x/sum(x) * 100) %>% 
-  prune_taxa(taxa = diff_sp_ancom_bc2, x = .) -> ps_sign
-
-taxa_names(ps_sign) <- tax_table(ps_sign)[,"Species"]
-
-lapply(
-  as.list(taxa_names(ps_sign)),
-  FUN = phyloseq_boxplot_abundance,
-  ps = ps_tmp,
-  x= comp_group, color = comp_group, level = "Species", line=NULL, violin = FALSE, show.points = TRUE, colors = palette) -> boxplots
-
-names(boxplots) <- taxa_names(ps_sign)
-
-
-########## ----- microbiomeMarker::run_lefse
-
-ps_tmp %>% 
-  physeq_sel_tax_table(c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")) %>% 
-  subset_taxa(Kingdom != unclassified_name) %>% 
-  microbiomeMarker::run_lefse(group = comp_group,
-                              taxa_rank = lefse_taxa_rank,
-                              sample_min = 5,
-                              strict = ,
-                              multigrp_strat = , # one-against one (more strict) or in a one-against all setting, default FALSE.
-                              lda_cutoff = 2) -> mmlefse
-
-microbiomeMarker::plot_ef_bar(mmlefse) + scale_fill_manual(values = palette) -> mmlefse_p
-
-microbiomeMarker::marker_table(mmlefse) %>%
-  data.frame() -> mmlefse_df
-
-ps_tmp %>% 
-  transform_sample_counts(function(x) x/sum(x) * 100) %>% 
-  prune_taxa(taxa = diff_sp_genomes, x = .) -> ps_sign
-
-ps_sign %>% 
-  phyloseq_ampvis_heatmap(ntax = Inf,
-                          transform = "identity",
-                          tax_aggregate = "Species",
-                          group_by = "SampleID",
-                          tax_add  = "Family",
-                          facet_by = c(comp_group)) -> p_diff_heat_sp
-
-
-########## ----- 
-
-ps_tmp %>% 
-  subset_taxa(Kingdom != unclassified_name) %>% # 
-  transform_sample_counts(function(x) x/sum(x) * 100) %>% 
-  prune_taxa(taxa = diff_sp_genomes, x = .) -> ps_sign
-
-taxa_names(ps_sign) <- tax_table(ps_sign)[,"Species"]
-
-lapply(
-  as.list(taxa_names(ps_sign)),
-  FUN = phyloseq_boxplot_abundance,
-  ps = ps_tmp,
-  x= comp_group, color = comp_group, level = "Species", line=NULL, violin = FALSE, show.points = TRUE, colors = palette) -> boxplots
-
-names(boxplots) <- taxa_names(ps_sign)
-
-
-
-########## ----- 
-
-```
-
-```{r}
-
-physeq_tax_only %>%
-  subset_taxa(Order != "unassigned") %>% 
-  microbiomeMarker::run_ancom(group = "group", 
-                              taxa_rank = ancom_taxa_rank, 
-                              confounders = ancom_confounders) -> ancom_age_all
-
-plot_ef_bar(ancom_age_all) -> ancom_p_age_all
-
-ancom_p_age_all + scale_fill_manual(values = group_pal) -> ancom_p_age_all
-
-# ancom_age_all_sp <- ancom_age_all
-
-# ancom_p_age_all$data %>%
-#     # data.frame() %>% 
-#     filter(grepl("s__", feature)) %>% 
-#     tidyr::separate(feature,
-#                     c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"),sep = "\\|") %>% 
-#     mutate(across(everything(), gsub, pattern = "[a-s]__", replacement = "")) %>% 
-#     mutate(feature = Species) -> ancom_p_age_all$data
-#   
-
-marker_table(ancom_age_all) %>%
-  data.frame() %>% 
-  filter(grepl("s__", feature)) %>% 
-  tidyr::separate(feature,
-                  c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"),sep = "\\|") %>% 
-  mutate(across(everything(), gsub, pattern = "[a-s]__", replacement = "")) %>% 
-  select(Species, ef_CLR_diff_mean, W, enrich_group) %>% 
-  right_join(tax_plus_genome_info,
-             by = c("Species" = "Species")) %>% 
-  mutate(ef_CLR_diff_mean = as.double(ef_CLR_diff_mean)) %>% 
-  arrange(enrich_group, -ef_CLR_diff_mean) -> diff_sp_genomes
-
-physeq_tax_only %>% 
-  transform_sample_counts(function(x) x/sum(x) * 100) %>% 
-  prune_taxa(taxa = diff_sp_genomes %>%  
-               dplyr::filter(!is.na(ef_CLR_diff_mean)) %>% 
-               pull(Species), x = .) -> ps_sign
-
-ps_sign %>% 
-  phyloseq_ampvis_heatmap(ntax = Inf,
-                          transform = "identity",
-                          tax_aggregate = "Species",
-                          group_by = "SampleID",
-                          tax_add  = "Family",
-                          facet_by = c("group")) -> p_diff_heat_sp
-
-lapply(
-  as.list(taxa_names(ps_sign)),
-  FUN = phyloseq_boxplot_abundance,
-  ps = ps_sign,
-  x= "group", color = "group", level = "Species", line=NULL, violin = FALSE, show.points = TRUE, colors = group_pal) -> boxplots
-
-names(boxplots) <- taxa_names(ps_sign)
-
-########## PPFOR VOR   ####################
-
-phyloseq %>%
-  physeq_sel_tax_table(c("K00169", "K00179")) %>%
-  # tax_glom(tax_meta) %>%
-  transform_sample_counts(function(x) x/sum(x) * 100) %>%
-  speedyseq::psmelt() -> ps_melted
-
-ps_melted %>%
-  pivot_longer("K00169":"K00179", names_to = "KeggID", values_to = "kegg_pres_abs") %>%
-  select(OTU, Sample, group, sex, Abundance, KeggID, kegg_pres_abs, PAA_ng_ml, PAG_ng_ml) %>%
-  group_by(Sample, group,sex, KeggID, kegg_pres_abs) %>%
-  summarise(proportion = sum(Abundance)) %>%
-  filter(kegg_pres_abs != "no-hit") -> KO_prop
-
-# gphic = subset_taxa(physeq1,  eval(as.name(level_tax)) == king_list)
-
-# KO_prop %>%
-#   microViz::comp_barplot(
-#     tax_transform_for_plot = "identity",
-#     label = NULL,   tax_level =  tax_meta,  merge_other = FALSE,
-#     # tax_level = "Phylum: Family", n_taxa = length(hierarchicalPal),
-#     tax_order = "name",
-#     sample_order = "default") +
-#   ylab("Proportion - %") + theme_light() + facet_grid(. ~ group, scales = "free", space = "free_x", drop = TRUE) -> bar_plot
-
-# bar_plot
-
-KO_prop %>%
-  ggpubr::ggboxplot(y = "proportion", color = "group",
-                    x = "group", add = "jitter") +
-  facet_grid(. ~ KeggID, scales = "free", space = "free_x", drop = TRUE) +
-  ggpubr::stat_compare_means(aes(label = paste0("p = ", after_stat(p.format)))) +
-  ylab("Proportion of KO harbouring taxa - %") +
-  scale_color_manual(values = group_pal) +
-  scale_fill_manual(values = group_pal) -> box_plot
-
-KO_prop %>%
-  ggpubr::ggboxplot(y = "proportion", color = "group", shape = "sex",
-                    x = "group") +
-  facet_grid(. ~ KeggID, scales = "free", space = "free_x", drop = TRUE) +
-  ggpubr::stat_compare_means(aes(label = paste0("p = ", after_stat(p.format)))) +
-  ylab("Proportion of KO harbouring taxa - %") +
-  scale_color_manual(values = group_pal) +
-  scale_fill_manual(values = group_pal) -> box_plot_sex
-
-# box_plot
-
-KO_prop %>%
-  ggpubr::compare_means(proportion ~ group,
-                        group.by = "KeggID",
-                        data = .) -> stats
-
-KO_prop %>%
-  ggpubr::compare_means(proportion ~ sex,
-                        group.by = c("KeggID","group"),
-                        data = .) -> stats_sex
-
-
-KO_prop %>%
-  left_join(ps_melted %>%
-              select(Sample, PAA_ng_ml, PAG_ng_ml)) %>%
-  pivot_longer("PAA_ng_ml":"PAG_ng_ml", names_to = "meta", values_to = "meta_concentration") %>%
-  ggpubr::ggscatter(., x = "proportion",
-                    y = "meta_concentration", #color = "group", #facet.by = "name",
-                    size = 2) +#, #label = "donors", repel = TRUE,
-  # font.label = c(8, "plain"),
-  # color = "sex", shape = "low_high_group", # Points color, shape and size
-  # add = "reg.line",  # Add regressin line
-  # add.params = list(color = "blue", fill = "lightgray"), # Customize reg. line
-  # conf.int = TRUE) + #, # Add confidence interval
-  # cor.coef = TRUE, # Add correlation coefficient. see ?stat_cor
-  # cor.coeff.args = list(method = "pearson",
-  # label.x = 25, label.y= 0,
-  # label.sep = "   ")) +
-  ylab("concentration ng/mL") +
-  facet_grid(meta ~ KeggID, scales = "free") +
-  stat_regline_equation(label.y.npc = "center") +
-  stat_cor(method = "pearson", cor.coef.name = "R") +
-  stat_cor(method = "spearman", cor.coef.name = "rho", label.y.npc = "bottom") +
-  geom_smooth(method = "lm", se = TRUE, colour  = "black", fill= "red") +
-  xlab(paste0("Proportion of  harboring taxa - %")) -> corr
-
-KO_prop %>%
-  left_join(ps_melted %>%
-              select(Sample, PAA_ng_ml, PAG_ng_ml)) %>%
-  pivot_longer("PAA_ng_ml":"PAG_ng_ml", names_to = "meta", values_to = "meta_concentration") %>%
-  ggpubr::ggscatter(., x = "proportion",
-                    y = "meta_concentration", #color = "group", #facet.by = "name",
-                    size = 2) +#, #label = "donors", repel = TRUE,
-  # font.label = c(8, "plain"),
-  # color = "sex", shape = "low_high_group", # Points color, shape and size
-  # add = "reg.line",  # Add regressin line
-  # add.params = list(color = "blue", fill = "lightgray"), # Customize reg. line
-  # conf.int = TRUE) + #, # Add confidence interval
-  # cor.coef = TRUE, # Add correlation coefficient. see ?stat_cor
-  # cor.coeff.args = list(method = "pearson",
-  # label.x = 25, label.y= 0,
-  # label.sep = "   ")) +
-  ylab("concentration ng/mL") +
-  facet_grid(meta ~ KeggID, scales = "free") +
-  # stat_regline_equation(label.y.npc = "center") +
-  # stat_cor(method = "pearson", cor.coef.name = "R") +
-  # stat_cor(method = "spearman", cor.coef.name = "rho", label.y.npc = "bottom") +
-  geom_smooth(method = "lm", se = TRUE, colour  = "black", fill= "red") +
-  xlab(paste0("Proportion of  harboring taxa - %")) -> corr_no_eq
-
-KO_prop %>%
-  left_join(ps_melted %>%
-              select(Sample, PAA_ng_ml, PAG_ng_ml)) %>%
-  pivot_longer("PAA_ng_ml":"PAG_ng_ml", names_to = "meta", values_to = "meta_concentration") %>%
-  ggpubr::ggscatter(., x = "proportion",
-                    y = "meta_concentration", #color = "group", #facet.by = "name",
-                    size = 2, #label = "donors", repel = TRUE,
-                    # font.label = c(8, "plain"),
-                    color = "sex") +#, #shape = "low_high_group", # Points color, shape and size
-  # add = "reg.line",  # Add regressin line
-  # # add.params = list(color = "blue", fill = "lightgray"), # Customize reg. line
-  # conf.int = TRUE, # Add confidence interval
-  # cor.coef = TRUE, # Add correlation coefficient. see ?stat_cor
-  # cor.coeff.args = list(method = "pearson",
-  #                       label.x = 25, label.y= 0,
-  #                       label.sep = "   ")) +
-  ylab("concentration ng/mL") +
-  facet_grid(meta ~ KeggID, scales = "free") +
-  stat_regline_equation(label.y.npc = "center") +
-  stat_cor(method = "pearson", cor.coef.name = "R") +
-  stat_cor(method = "spearman", cor.coef.name = "rho", label.y.npc = "bottom") +
-  geom_smooth(method = "lm", se = TRUE, colour  = "black", fill= "red") +
-  xlab(paste0("Proportion of  harboring taxa - %")) -> corr_sex
-
-########## return   ####################
-
-return(out = list("alpha_plot_stat" = alpha_plot_stat,
-                  "alpha_plot" = alpha_plot,
-                  "alpha_stat" = alpha_stat,
-                  "alpha_stat_sex" = alpha_stat_sex,
-                  "alpha_div" = alpha_div,
-                  "pcoas" = pcoas,
-                  "expl_var" = expl_var,
-                  "PCoA" = PCoA,
-                  "permanova" = permanova,
-                  "fam_fit" = fam_fit,
-                  # "gen_fit" = gen_fit,
-                  # "sp_fit" = sp_fit,
-                  
-                  
-                  "heat_all"= all,
-                  "ancom" = ancom_age_all,
-                  "ancom_LDA" = ancom_p_age_all,
-                  "ancom_df" = marker_table(ancom_age_all) %>% data.frame(),
-                  "genom_table_info" = diff_sp_genomes %>%  
-                    replace(is.na(.), ""),
-                  "p_diff_heat_sp" = p_diff_heat_sp,
-                  "boxplots" = boxplots,
-                  "KO_prop" = KO_prop,
-                  "KO_wide" = KO_prop %>%  pivot_wider(names_from = c(Sample, group), values_from = proportion),
-                  "stats" = stats,
-                  "stats_sex" = stats_sex,
-                  "box_plot"= box_plot,
-                  "box_plot_sex" = box_plot_sex,
-                  # "bar_plot" = bar_plot,
-                  "corr_no_eq" = corr_no_eq,
-                  "corr" = corr,
-                  "corr_sex" = corr_sex))
-
-
-```
-
-
-
-# Plaque:
-
-```{r}
-ps_up %>%
-  tax_glom(taxrank = "Species") %>%
-  physeq_sel_tax_table(c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")) %>%
-  subset_samples(Sample == "Plaque")  -> physeq_tmp
-```
-
-## Lefse:
-
-```{r}
-physeq_tmp %>%
-  phyloseq_diff(method = "lefse", group = "Time", taxa_level = "all", p_adjust_method = "fdr", plot_pal = time_pal, add_sig_plot2  = TRUE) -> lefse_plaque
-
-
-
-lefse_plaque$diff_bar <-   lefse_plaque$diff_bar + theme(legend.position = "none")
-lefse_plaque$diff_abund  <- lefse_plaque$diff_abund  + scale_y_sqrt() + theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(), panel.border = element_blank()) + ylab("Proportion (sqrt)")
-
-lefse_plaque$diff_bar %>% aplot::insert_right(lefse_plaque$diff_abund, width = 0.5)
-```
-## ANCOMBC2
-
-```{r}
-physeq_tmp %>%
-  phyloseq_density_normalize("Quant") %>%
-  phyloseq_diff(method = "ancombc2", group = "Time", taxa_level = "Species", p_adjust_method = "fdr", plot_pal = time_pal, add_sig_plot2  = TRUE) -> ancombc2_plaque
-
-ancombc2_plaque$diff_bar <-   ancombc2_plaque$diff_bar + theme(legend.position = "none")
-ancombc2_plaque$diff_abund  <- ancombc2_plaque$diff_abund  + scale_y_sqrt() + theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(), panel.border = element_blank()) + ylab("Proportion (sqrt)")
-
-ancombc2_plaque$diff_bar %>% aplot::insert_right(lefse_plaque$diff_abund, width = 0.5)
-```
-```{r}
-
-```
-
-
-```{r}
-# physeq_tmp %>%
-#   run_lefse(.,taxa_rank = "Species", group = "Time", norm = "CPM",
-#             kw_cutoff = 0.05, lda_cutoff = 2, multigrp_strat = TRUE, strict = "0") -> lef_out
-#
-#
-# lef_out %>%
-#   marker_table() %>%  data.frame() -> lefse_df
-#
-# plot_ef_bar(lef_out) +
-#   scale_color_manual(name = "", values = time_pal,
-#                      na.value = "black") +
-#   scale_fill_manual(name = "", values = time_pal,
-#                     na.value = "black")  -> lef_plot
-#
-# lef_plot
-```
-
-```{r}
-# physeq_tmp %>%
-#   run_lefse(.,taxa_rank = "Genus", group = "Time", subgroup = "TP1", norm = "CPM",
-#             kw_cutoff = 0.05, lda_cutoff = 2, multigrp_strat = TRUE, strict = "0") -> lef_out
-#
-# lef_out %>%
-#   marker_table() %>%  data.frame() -> lefse_df
-#
-# plot_ef_bar(lef_out) +
-#   scale_color_manual(name = "", values = time_pal,
-#                      na.value = "black") +
-#   scale_fill_manual(name = "", values = time_pal,
-#                     na.value = "black")  -> lef_plot
-#
-# lef_plot
-```
-
-## Ancom:
-
-```{r}
-physeq_tmp %>%
-  subset_taxa(Order != "unassigned") %>%
-  microbiomeMarker::run_ancom(group = "Time",
-                              taxa_rank = "Species",
-                              p_adjust = "fdr") -> ancom #,
-# confounders = c("age", "sex")) -> ancom
-
-plot_ef_bar(ancom) -> ancom_p
-
-ancom_p + scale_fill_manual(values = time_pal) -> ancom_p
-
-ancom_p
-```
-
-
-```{r}
-# ancom_age_all_sp <- ancom_age_all
-
-# ancom_p_age_all$data %>%
-#     # data.frame() %>%
-#     filter(grepl("s__", feature)) %>%
-#     tidyr::separate(feature,
-#                     c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"),sep = "\\|") %>%
-#     mutate(across(everything(), gsub, pattern = "[a-s]__", replacement = "")) %>%
-#     mutate(feature = Species) -> ancom_p_age_all$data
-#
-
-marker_table(ancom) %>%
-  data.frame() %>%
-  # filter(grepl("s__", feature)) %>%
-  # tidyr::separate(feature,
-  #                 c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"),sep = "\\|") %>%
-  # mutate(across(everything(), gsub, pattern = "[a-s]__", replacement = "")) %>%
-  select(feature, ef_CLR_F_statistic, W, enrich_group) %>%
-  # right_join(tax_plus_genome_info,
-  #            by = c("Species" = "Species")) %>%
-  mutate(ef_CLR_F_statistic = as.double(ef_CLR_F_statistic)) %>%
-  arrange(enrich_group, -ef_CLR_F_statistic) -> diff_sp_genomes
-
-physeq_tmp %>%
-  transform_sample_counts(function(x) x/sum(x) * 100) %>%
-  microViz::tax_select(ranks_searched = "Species", diff_sp_genomes %>%
-                         dplyr::filter(!is.na(ef_CLR_F_statistic)) %>%
-                         pull(feature)) -> ps_sign
-
-ps_sign %>%
-  phyloseq_ampvis_heatmap(ntax = Inf,
-                          transform = "identity",
-                          tax_aggregate = "Species",
-                          group_by = "SampleID",
-                          tax_add  = "Family",
-                          facet_by = c("Time")) -> p_diff_heat_sp
-
-# lapply(
-#   as.list(taxa_names(ps_sign)),
-#   FUN = phyloseq_boxplot_abundance,
-#   ps = ps_sign,
-#   x= "Time", color = "Time", level = "Species", line=NULL, violin = FALSE, show.points = TRUE, colors = time_pal) -> boxplots
-#
-# names(boxplots) <- taxa_names(ps_sign)
-
-ps_sign %>%
-  microViz::comp_barplot(
-    tax_transform_for_plot = "identity",
-    label = NULL,   tax_level =  "Species",  merge_other = FALSE,
-    # tax_level = "Phylum: Family", n_taxa = length(hierarchicalPal),
-    tax_order = sum, # "name",
-    sample_order = "bray") + #"default"
-  ylab("Proportion - %") + theme_light() + facet_grid(. ~ Time, scales = "free", space = "free_x", drop = TRUE) -> bar_plot
-
-bar_plot
-
-```
-
-## Maaslin2:
-
-```{r}
-# physeq_tmp %>%
-#   phyloseq_Maaslin2(fixed_effects = "Time",
-#                     reference = "TP1")
-```
-
-# Saliva:
-
-```{r}
-ps_up %>%
-  physeq_sel_tax_table(c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")) %>%
-  subset_samples(Sample == "Saliva") -> physeq_tmp
-```
-
-## Lefse:
-
-
-```{r}
-physeq_tmp %>%
-  run_lefse(.,taxa_rank = "Species", group = "Time", norm = "CPM",
-            kw_cutoff = 0.05, lda_cutoff = 2, multigrp_strat = TRUE, strict = "0") -> lef_out
-
-lef_out %>%
-  marker_table() %>%  data.frame() -> lefse_df
-
-plot_ef_bar(lef_out) +
-  scale_color_manual(name = "", values = time_pal,
-                     na.value = "black") +
-  scale_fill_manual(name = "", values = time_pal,
-                    na.value = "black")  -> lef_plot
-
-lef_plot
-```
-```{r}
-physeq_tmp %>%
-  run_lefse(.,taxa_rank = "Genus", group = "Time", subgroup = "TP1", norm = "CPM",
-            kw_cutoff = 0.05, lda_cutoff = 2, multigrp_strat = TRUE, strict = "0") -> lef_out
-
-lef_out %>%
-  marker_table() %>%  data.frame() -> lefse_df
-
-plot_ef_bar(lef_out) +
-  scale_color_manual(name = "", values = time_pal,
-                     na.value = "black") +
-  scale_fill_manual(name = "", values = time_pal,
-                    na.value = "black")  -> lef_plot
-
-lef_plot
-```
-
-## Ancom:
-
-```{r}
-physeq_tmp %>%
-  subset_taxa(Order != "unassigned") %>%
-  microbiomeMarker::run_ancom(group = "Time",
-                              taxa_rank = "Species",
-                              p_adjust = "fdr") -> ancom #,
-# confounders = c("age", "sex")) -> ancom
-
-plot_ef_bar(ancom) -> ancom_p
-
-ancom_p + scale_fill_manual(values = time_pal) -> ancom_p
-
-ancom_p
-```
-
-
-```{r}
-# ancom_age_all_sp <- ancom_age_all
-
-# ancom_p_age_all$data %>%
-#     # data.frame() %>%
-#     filter(grepl("s__", feature)) %>%
-#     tidyr::separate(feature,
-#                     c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"),sep = "\\|") %>%
-#     mutate(across(everything(), gsub, pattern = "[a-s]__", replacement = "")) %>%
-#     mutate(feature = Species) -> ancom_p_age_all$data
-#
-
-marker_table(ancom) %>%
-  data.frame() %>%
-  # filter(grepl("s__", feature)) %>%
-  # tidyr::separate(feature,
-  #                 c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"),sep = "\\|") %>%
-  # mutate(across(everything(), gsub, pattern = "[a-s]__", replacement = "")) %>%
-  select(feature, ef_CLR_F_statistic, W, enrich_group) %>%
-  # right_join(tax_plus_genome_info,
-  #            by = c("Species" = "Species")) %>%
-  mutate(ef_CLR_F_statistic = as.double(ef_CLR_F_statistic)) %>%
-  arrange(enrich_group, -ef_CLR_F_statistic) -> diff_sp_genomes
-
-physeq_tmp %>%
-  transform_sample_counts(function(x) x/sum(x) * 100) %>%
-  microViz::tax_select(ranks_searched = "Species", diff_sp_genomes %>%
-                         dplyr::filter(!is.na(ef_CLR_F_statistic)) %>%
-                         pull(feature)) -> ps_sign
-
-ps_sign %>%
-  phyloseq_ampvis_heatmap(ntax = Inf,
-                          transform = "identity",
-                          tax_aggregate = "Species",
-                          group_by = "SampleID",
-                          tax_add  = "Family",
-                          facet_by = c("Time")) -> p_diff_heat_sp
-
-# lapply(
-#   as.list(taxa_names(ps_sign)),
-#   FUN = phyloseq_boxplot_abundance,
-#   ps = ps_sign,
-#   x= "Time", color = "Time", level = "Species", line=NULL, violin = FALSE, show.points = TRUE, colors = time_pal) -> boxplots
-#
-# names(boxplots) <- taxa_names(ps_sign)
-
-ps_sign %>%
-  microViz::comp_barplot(
-    tax_transform_for_plot = "identity",
-    label = NULL,   tax_level =  "Species",  merge_other = FALSE,
-    # tax_level = "Phylum: Family", n_taxa = length(hierarchicalPal),
-    tax_order = sum, # "name",
-    sample_order = "bray") + #"default"
-  ylab("Proportion - %") + theme_light() + facet_grid(. ~ Time, scales = "free", space = "free_x", drop = TRUE) -> bar_plot
-
-bar_plot
-
-```
-
 
 ```{r}
 # save(period_pal,
