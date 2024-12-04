@@ -188,7 +188,7 @@ ps_up %>%
                           ancombc2_rand_formula = NULL,
                           ancombc2_group = "Sample",
                           linda_formula = NULL,
-                          linda_comp_group = comp_group,
+                          linda_comp_group = "Sample",,
                           palette = sample_pal,
                           unclassified_name = "UNCLASSIFIED") -> TP1
 ```

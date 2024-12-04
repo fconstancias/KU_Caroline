@@ -1,3 +1,279 @@
+#' Import and Process HUMAnN Pathway Data for Microbial Ecology Analysis
+#'
+#' This function imports HUMAnN pathway data, processes it into a `phyloseq` object, 
+#' and cleans and annotates the data to facilitate downstream analysis in microbial ecology studies.
+#' 
+#' @param pathway A file path or object containing HUMAnN pathway or gene family level data.
+#' @param rank The taxonomic rank used for filtering or organizing the taxonomy table. Default is `"pathway"`.
+#' @param tax_clean_gsub A regular expression pattern to clean unwanted characters or prefixes in taxonomy labels. Default is `"[a-t]__"`.
+#' @param no_sel A vector of values to exclude during filtering, such as `NA` or `"unclassified"`. Default is `c(NA, "<NA>", "NA", "unclassified")`.
+#' @param sub_pat_a A string pattern for initial cleaning of sample names. Default is `"_trimmed_HF_merged_Abundance-RELAB"`.
+#' @param sub_pat_b A string pattern for additional cleaning of sample names. Default is `"_subset50"`.
+#' @param tax_na_if A string indicating taxonomy entries to replace with `NA`. Default is `"unclassified"`.
+#' @param sample_name_clean_a A regular expression pattern for extracting meaningful parts of sample names. Default is `"[^_]+"`.
+#' @param sample_name_clean_b A regular expression for removing specific patterns in sample names. Default is `"[A-Z]"`.
+#' @param meta File path to metadata (in Excel format). Default points to a metadata file for the Deerland Study.
+#' @param sample_column The column name in the metadata file corresponding to sample IDs. Default is `"ID"`.
+#' @param sample_nam_prefix A prefix to add to sample names. Default is `"S_"`.
+#' @param rm_un Logical; whether to remove taxonomy entries starting with `"UN"`. Default is `TRUE`.
+#' @param return_unstrat Logical; whether to return only unstratified pathways. Default is `TRUE`.
+#' @param str_trun An integer specifying the maximum length of pathway names for truncation. Default is `40`.
+#' @param add_MetaCyc_pathway_map Logical; whether to include MetaCyc pathway mapping. Default is `TRUE`.
+#' @param add_CHOCOPhlAn_taxonomy Logical; whether to annotate with CHOCOPhlAn taxonomy. Default is `TRUE`.
+#' @param final_tax_table_ranks A vector of column names defining the final structure of the taxonomy table. Default includes taxonomic and pathway features.
+#' 
+#' @return A `phyloseq` object with processed HUMAnN pathway data, cleaned sample names, taxonomy table, and metadata.
+#' 
+#' @details 
+#' This function performs the following operations:
+#' - Imports HUMAnN pathway data using `mia::importHUMAnN`.
+#' - Converts the data into a `phyloseq` object for downstream microbial ecology analysis.
+#' - Cleans sample names based on specified substitution patterns and regular expressions.
+#' - Adds metadata to the `phyloseq` object for sample-level annotations.
+#' - Processes and cleans the taxonomy table, replacing "unclassified" entries with `NA`, and optionally removing entries starting with "UN".
+#' - Annotates pathways using MetaCyc and/or CHOCOPhlAn taxonomy data, with abbreviations for long pathway names and features.
+#' 
+#' @examples
+#' \dontrun{
+#' pathway_data <- "path/to/humann_pathway_data.tsv"
+#' processed_data <- import_humann_pathway_mia(
+#'   pathway = pathway_data,
+#'   meta = "path/to/metadata.xlsx",
+#'   sample_column = "SampleID"
+#' )
+#' }
+#' 
+#' @import microeco file2meco mia phyloseq microViz stringr dplyr readxl here
+#' @export
+#' 
+#' 
+import_humann_pathway_mia <- function(pathway = NULL,
+                                      rank = "pathway",
+                                      tax_clean_gsub = "[a-t]__",
+                                      no_sel = c(NA, "<NA>","NA", "unclassified"),
+                                      sub_pat_a = "_trimmed_HF_merged_Abundance-RELAB",
+                                      sub_pat_b = "_subset50",
+                                      tax_na_if = "unclassified",
+                                      sample_name_clean_a = "[^_]+",
+                                      sample_name_clean_b = "[A-Z]",
+                                      meta = here::here("../../data/processed_data/metaphlan/Metadata_Deerland_Study.xlsx") %>% 
+                                        read_excel(sheet = "Trial2"),
+                                      sample_column = "ID",
+                                      sample_nam_prefix = "S_",
+                                      rm_un = TRUE,
+                                      return_unstrat = TRUE,
+                                      str_trun = 40,
+                                      add_MetaCyc_pathway_map = TRUE,
+                                      add_CHOCOPhlAn_taxonomy = TRUE,
+                                      final_tax_table_ranks = c("Superclass1", "Superclass2", "feature", "Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")){
+  
+  
+  suppressMessages(suppressWarnings({
+    # Load required libraries
+    require(microeco); require(file2meco); require(mia)     # For ecological and microbial ecology data analysis
+    # require(microViz)   # An extension of phyloseq for speedy data manipulation
+    
+    pathway %>% 
+      mia::importHUMAnN()  %>% 
+      mia::convertToPhyloseq() %>% 
+      # Clean sample names by applying various substitution patterns iteratively
+      clean_phyloseq_sample_names(sub_pat = sub_pat_a) %>% 
+      clean_phyloseq_sample_names(sub_pat = sub_pat_b) -> pw_mia_ps
+    
+    colnames(tax_table(pw_mia_ps)) = str_to_title(rank_names(pw_mia_ps))
+    # taxa_sums(pw_mia_ps) %>%  sort(decreasing = T) %>%  tail()
+    
+    # Extract and clean sample names
+    pw_mia_ps %>% 
+      sample_names() %>% 
+      str_extract(., sample_name_clean_a) %>%  # Extract meaningful parts of sample names
+      str_remove_all(., sample_name_clean_b) -> sample_names(pw_mia_ps)
+    
+    # Add metadata to the phyloseq object
+    pw_mia_ps %>% 
+      physeq_add_metadata(metadata = meta, 
+                          sample_column = sample_column) -> pw_mia_ps
+    
+    # Add a prefix to sample names
+    pw_mia_ps %>% 
+      sample_names() %>% 
+      paste0(sample_nam_prefix, .) -> sample_names(pw_mia_ps)
+    
+    
+    # Clean up the taxonomy table by removing unwanted patterns
+    tax_table(pw_mia_ps) <- tax_table(pw_mia_ps) %>% 
+      gsub(pattern = tax_clean_gsub, replacement = "") %>%  # Remove specific patterns
+      # as.matrix() %>%  
+      tax_table()
+    
+    # Replace "unclassified" entries with NA in the taxonomy table
+    tax_table(pw_mia_ps) <- tax_table(pw_mia_ps) %>% 
+      data.frame() %>% 
+      mutate_all(na_if, tax_na_if) %>%  # Convert "unclassified" to NA
+      as.matrix() %>%  
+      tax_table()
+    
+    # Filter taxonomy table based on conditions (commented lines suggest alternative filters)
+    pw_mia_ps %>%
+      microViz::tax_mutate(feature = taxa_names(.)) -> pw_mia_ps
+    
+    # rank="feature"
+    # pw_mia_ps %>% 
+    #   speedyseq::filter_tax_table(get(rank) %!in% eval(as.character(no_sel))) -> pw_mia_ps
+    # tax_mutate(Strain = NULL) %>%
+    # microViz::tax_select(ranks_searched = rank, tax_list = eval(as.character(no_sel)),
+    # deselect = TRUE) -> pw_me_ps_2              # Optional taxonomic selection step
+    ## speedyseq::filter_tax_table(!eval(as.name((rank))) %in% no_sel) -> pw_me_ps# Exclude unwanted taxonomic ranks
+    ## speedyseq::filter_tax_table(is.na("pathway")) %>%     # Alternative: filter NA pathways
+    
+    # pw_me_ps %>% 
+    #   subset_taxa(is.na(Genus)) -> pw_me_ps
+    
+    if(return_unstrat)
+    {  
+      rank="Genus"
+      no_sel=c(NA,"NA", "<NA>", NA_character_)
+      
+      pw_mia_ps %>% 
+        speedyseq::filter_tax_table(get(rank) %in% eval(as.character(no_sel))) %>% 
+        subset_taxa(!(grepl("unclassified", feature))) -> pw_mia_ps
+    }
+    
+    if(rm_un)
+    {
+      pw_mia_ps %>%
+        subset_taxa(!(grepl("^UN", feature)))  -> pw_mia_ps
+      
+      pw_mia_ps %>%
+        microViz::tax_mutate(feature_code = taxa_names(.)) -> pw_mia_ps
+      # Return the cleaned and updated phyloseq object
+    }
+    
+    if(isTRUE(rm_un) & isTRUE(return_unstrat)){
+      taxa_names(pw_mia_ps) <- taxa_names(pw_mia_ps) %>% 
+        stringi::stri_extract(., regex = '[^:]*') 
+    }
+    
+    if(add_MetaCyc_pathway_map)
+    {
+      data(MetaCyc_pathway_map)  
+      
+      pw_mia_ps %>%
+        microViz::tax_mutate(feature_code = taxa_names(.)) -> pw_mia_ps
+      
+      pw_mia_ps %>% 
+        tax_table() %>% 
+        as.data.frame() %>% 
+        rownames_to_column("tmp") %>% 
+        # select(feature) %>% 
+        dplyr::left_join(.,
+                         MetaCyc_pathway_map %>% 
+                           rownames_to_column("tmp") %>% 
+                           mutate_all(funs(str_replace_all(., "&&", "-"))) %>% 
+                           mutate_all(funs(str_replace_all(., "[&$|;]", "-"))),
+                         by = c("tmp" = "tmp") 
+        ) %>%  select(one_of(c("tmp", colnames(MetaCyc_pathway_map), rank_names(pw_mia_ps)))) %>% 
+        column_to_rownames('tmp') %>% 
+        mutate(feature = 
+                 stringr::str_replace_all(pathway, 
+                                          c(biosynthesis="Bios.", 
+                                            vitamin="Vit.",
+                                            metabolism = "Met.",
+                                            nucleotides = "Nucleot.",
+                                            nucleosides = "Nucleos.",
+                                            carbohydrate = "Carb.",
+                                            glycolysis = "Glycol.",
+                                            assimilation = "Assim.",
+                                            degradation = "Degrad.",
+                                            `amino acid` = "AA",
+                                            superpathway = "SPWY.",
+                                            fermentation = "Ferm.",
+                                            nutrient = "Nutr.",
+                                            photosynthesis = "Photosynth.",
+                                            pathways = "PWY.",
+                                            degradation = "Deg.",
+                                            utilization = "Util.",
+                                            structure = "Stru.",
+                                            vitamin = "Vit.",
+                                            `fatty Acid` = "F.Acid",
+                                            inorganic = "Inorg.",
+                                            aromatic = "Aroma.",
+                                            compound = "Comp.",
+                                            decarboxylation = "decarboxyl.",
+                                            reduction = "Red.",
+                                            transformations = "transf.",
+                                            photosynthetic = "Photosynth."))) %>% 
+        mutate(across(c("Superclass1", "Superclass2"), 
+                      ~ stringr::str_replace_all(., c(Precursor = "Precurs.",
+                                                      Biosynthesis="Bios.", 
+                                                      Transfer = "Trans.",
+                                                      Vitamin="Vit.",
+                                                      Generation = "Gen.",
+                                                      Metabolism = "Met.",
+                                                      Nucleotides = "Nucleot.",
+                                                      Nucleosides = "Nucleos.",
+                                                      Carbohydrate = "Carb.",
+                                                      Glycolysis = "Glycol.",
+                                                      Assimilation = "Assim.",
+                                                      Degradation = "Degrad.",
+                                                      `Amino acid` = "AA",
+                                                      Superpathway = "SPWY.",
+                                                      Fermentation = "Ferm.",
+                                                      Nutrient = "Nutr.",
+                                                      Photosynthesis = "Photosynth.",
+                                                      Pathways = "PWY.",
+                                                      Degradation = "Deg.",
+                                                      Utilization = "Util.",
+                                                      Structure = "Stru.",
+                                                      Vitamin = "Vit.",
+                                                      `Fatty Acid` = "F.Acid",
+                                                      Inorganic = "Inorg.",
+                                                      Aromatic = "Aroma.",
+                                                      Compound = "Comp.",
+                                                      Decarboxylation = "decarboxyl.",
+                                                      Reduction = "Red.",
+                                                      Transformations = "transf.",
+                                                      Photosynthetic = "Photosynth.")
+                      ))) %>% 
+        mutate(across(c("Superclass1", "Superclass2","pathway"), 
+                      ~ stringr::str_trunc(., width = str_trun, side ="center"))) %>% 
+        select(one_of(final_tax_table_ranks)) %>% 
+        as.matrix() -> tax_table(pw_mia_ps)
+    }
+    
+    if(add_CHOCOPhlAn_taxonomy){
+      data(CHOCOPhlAn_taxonomy)
+      
+      CHOCOPhlAn_taxonomy %>%
+        as.matrix() %>%
+        gsub(pattern = tax_clean_gsub, replacement = "") %>%  # Remove specific patterns
+        as.data.frame() -> CHOCOPhlAn_taxonomy
+      
+      pw_mia_ps %>% 
+        tax_table() %>% 
+        as.data.frame() %>% 
+        rownames_to_column("tmp") %>% 
+        dplyr::left_join(.,
+                         CHOCOPhlAn_taxonomy,
+                         # rownames_to_column("tmp"),
+                         by = c("Genus" = "Genus")) %>% 
+        select(one_of(c("tmp",final_tax_table_ranks))) %>% 
+        column_to_rownames('tmp') %>% 
+        as.matrix() -> tax_table(pw_mia_ps)
+      
+    }
+    
+    if(!isTRUE(add_CHOCOPhlAn_taxonomy) & !isTRUE(add_MetaCyc_pathway_map)){
+      pw_mia_ps %>% 
+        physeq_sel_tax_table(final_tax_table_ranks) -> pw_mia_ps
+    }
+    
+  }))
+  return(pw_mia_ps)
+}
+
+
+
 #' @title Differiential feature analyses wrapper for Microbiome analyses
 #' @author Florentin Constancias
 #' @description 
@@ -639,8 +915,7 @@ phyloseq_top_heatmap_barplot <- function(
     rm_unclassified = TRUE,
     barplot_level = "Species",
     boxplot_main_group = "Class",
-    per_sub_plot = TRUE
-) {
+    per_sub_plot = TRUE) {
   
   require(ggpubr); require(tidyverse);require(speedyseq);require(ampvis2);require(microViz);require(rstatix);require(ggnested)
   source("https://raw.githubusercontent.com/fconstancias/DivComAnalyses/master/R/phyloseq_heatmap.R")
@@ -671,9 +946,10 @@ phyloseq_top_heatmap_barplot <- function(
             ntax = ifelse(tax == "Species", ntax_species, ntax)
           )
         
+ 
         # Transform to relative abundance (percentage), filter to most abundant taxa
         out$heat[[tax]] <- ps_up %>%
-          transform_sample_counts(function(x) x / sum(x) * 100) %>%
+          transform_sample_counts(function(x) x / sum(x) * 100) %>% # conditional
           tax_glom(taxrank = tax) %>%
           filter_tax_table(get(tax) %in% out$most_ab_treat[[tax]]) %>%
           tax_mutate(Strain = NULL) %>%
@@ -749,7 +1025,7 @@ phyloseq_top_heatmap_barplot <- function(
       bar_plot <- ps_up %>%
         subset_taxa(Class != "UNCLASSIFIED") %>%
         tax_glom(barplot_level) %>%
-        transform_sample_counts(function(x) x / sum(x) * 100) %>%
+        transform_sample_counts(function(x) x / sum(x) * 100) %>% # conditional
         filter_tax_table(get(barplot_level) %in% out$most_ab_treat[[barplot_level]]) %>%
         microViz::comp_barplot(
           bar_width = 1,
@@ -1239,6 +1515,7 @@ phyloseq_explore_beta <- function(ps_up = ps_up,
                                   permanova_terms = c("Time", "cluster_Dtp2"),
                                   metadata_dist_boxplot = NULL,
                                   strata = "none",
+                                  run_phyloseq_TW = TRUE,
                                   perm = 999)
 {
   suppressMessages({
@@ -1310,8 +1587,10 @@ phyloseq_explore_beta <- function(ps_up = ps_up,
       for (compare_header in permanova_terms) {
         ps_up %>% lapply(beta, FUN = physeq_pairwise_permanovas_adonis2, physeq = ., compare_header = compare_header, n_perm = perm, strata = strata, terms_margins = "terms") %>%
           bind_rows(.id = "Distance") %>% mutate("Group" = as.vector(compare_header)) %>% bind_rows(., out$pw_perm) -> out$pw_perm
+        if(run_phyloseq_TW){
         lapply(beta, FUN = phyloseq_TW, physeq = ps_up, variable = compare_header, nrep = perm) %>%
           bind_rows(.id = "Distance") %>% mutate("Group" = as.vector(compare_header)) %>% bind_rows(., out$tw_perm) -> out$tw_perm
+        }
       }
       
       #### 7. Generate PCoA plots for each variable in permanova_terms

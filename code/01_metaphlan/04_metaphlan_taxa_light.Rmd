@@ -88,12 +88,11 @@ below the Arguments of the function phyloseq_top_heatmap_barplot() + default val
 
 ```
 
-
 Run the function:
 
 ```{r}
 ps_up %>% 
-  phyloseq_top_heatmap_barplot(facet_formula = "Sample_Type ~ Time" , 
+  phyloseq_top_heatmap_barplot(facet_formula = "Sample_Type ~ Time",
                                ntax = 5, ntax_species = 10, plot_heights = c(1.4, 1.4, 4),
                                boxplot_main_group = "Family") -> out
 ```
@@ -131,6 +130,45 @@ out$ps_sub
 out$ps_sub + facet_null() +
   facet_grid(rows = vars(Sample_Type), 
              cols = vars(cluster_Dtp2, Subject )) + theme(legend.position = "none") 
+
+```
+
+
+# Statistical test to find differential abundant (i.e., proporition) taxa:
+
+
+Function `phyloseq_diff_abundance()` allows to run different methods, here are the arguments:
+
+```{r}
+#' @title Differiential feature analyses wrapper for Microbiome analyses
+#' @author Florentin Constancias
+#' @description 
+#' This script performs a comparative analysis of various approaches for microbiome studies, 
+#' including metagenomics, metabarcoding, metabolomics, and transcriptomics. The script 
+#' calculates the number of publications, environments analyzed, and the methods applied.
+#' 
+#' @param ps_tmp A phyloseq object. Defaults to saliva samples (`ps_up %>% subset_samples(Sample == "Saliva")`).
+#' @param approach Character vector specifying the analysis approach. Options include:
+#'   - "run_lefse": Linear discriminant analysis (LEfSe)
+#'   - "run_ancom": Analysis of composition of microbiomes (ANCOM)
+#'   - "ancombc2": ANCOMBC2 method for differential abundance
+#'   - "maaslin3": Multivariate analysis using Maaslin3
+#'   - "trans_diff_rf": Transformation-based Random Forest
+#'   - "classifier_rf": Random Forest classifier
+#' @param glom Taxonomic rank for agglomeration (e.g., "Species"). Set to `NULL` to skip agglomeration.
+#' @param unclassified_name Name for unclassified taxa (default: "UNCLASSIFIED").
+#' @param taxa_rank Taxonomic rank for differential abundance (default: "all").
+#' @param density Density metric to normalize counts. Default is "Quant".
+#' @param comp_group Grouping variable for comparison (e.g., "Time").
+#' @param palette Color palette for plots.
+#' @param pvalue_cutoff p-value cutoff for significance.
+#' @param p_adjust Method for p-value adjustment (e.g., "BH" for Benjamini-Hochberg).
+#' @param lefse_* Parameters specific to the LEfSe method.
+#' @param maaslin3_* Parameters specific to Maaslin3 analysis.
+#' @param ancombc2_* Parameters specific to ANCOMBC2 analysis.
+#' @param linda_* Parameters specific to LINDA (if used in the future).
+#' @param rf_* Parameters specific to Random Forest methods.
+#' @param trans_diff_rf_MeanDecreaseGini_cutoff Gini index cutoff for feature importance in Random Forest.
 
 ```
 
@@ -243,29 +281,6 @@ ancom_sample$mmancom_p
 ```
 
 
- `plot_taxa_selection()` to visualize further the differentially abundant tax:
-
-```{r}
-plot_taxa_selection(diff_ab_out = lefse_TP1$mmlefse_df, 
-                    ps_tmp = ps_up %>% 
-                      subset_samples(Time == "TP1"),
-                    full_path_tax_res = TRUE, 
-                    plot_x = "Subject",
-                    diff_ab_filter = "ef_lda > 0 & padj <= 0.05", 
-                    taxa_sel_col = "feature",
-                    full_path_sel = "s__",
-                    full_path_row_to_col = "tmp",
-                    comp_group = "Sample") -> TP1_plots
-
-TP1_plots$heat
-```
-
-
-```{r}
-TP1_plots$boxplot
-```
-
-
 ## Test differences between time points in Saliva samples:
 
 ```{r, message=TRUE}
@@ -273,6 +288,7 @@ ps_up %>%
   subset_samples(Sample == "Saliva") %>% 
   phyloseq_diff_abundance(ps_tmp = .,
                           lefse_multigrp_strat = TRUE,
+                          lefse_prv_cut = 0.4,
                           approach = c("run_lefse"),
                           glom = "Species",
                           taxa_rank = "all", 
@@ -294,26 +310,28 @@ plot_taxa_selection(diff_ab_out = lefse_saliva$mmlefse_df,
                     taxa_sel_col = "feature",
                     full_path_sel = "s__",
                     palette = time_pal,
+                    ntax = 30,
                     full_path_row_to_col = "tmp",
                     comp_group = "Time") -> saliva_plots
 
 saliva_plots$heat
 ```
-
 ```{r}
-saliva_plots$boxplot$Capnocytophaga_ochracea
+saliva_plots$heat_legend
 ```
 
 ```{r}
-# save(period_pal,
-#      sample_pal,
-#      sex_pal,
-#      sub_pal,
-#      time_pal,
-#      ps_up,
-#      p1, p1_leg, p2, p2_leg, p3, p3_leg,
-#      file = here::here("data/04_data.Rdata"))
+saliva_plots$bar_plot + facet_null() + facet_grid("Class ~ Time", scales = "free", drop = TRUE)
 ```
+
+```{r}
+saliva_plots$nested_legend
+```
+
+```{r}
+saliva_plots$boxplot
+```
+
 
 
 ```{r}
