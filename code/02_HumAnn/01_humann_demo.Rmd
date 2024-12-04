@@ -47,6 +47,8 @@ source(paste0(source_dir,"phyloseq_biobakery_functions.R"))
 source(paste0(source_dir,"phyloseq_varia.R"))
 source(paste0(source_dir,"phyloseq_alpha.R"))
 source(paste0(source_dir,"phyloseq_beta.R"))
+source(paste0(source_dir,"phyloseq_normalisation.R"))
+
 
 source("https://raw.githubusercontent.com/fconstancias/metabaRpipe-source/master/Rscripts/functions.R")
 source("https://raw.githubusercontent.com/fconstancias/KU_Caroline/refs/heads/main/code/functions/phyloseq_functions.R")
@@ -167,16 +169,15 @@ import_humann_pathway_mia <- function(pathway = NULL,
       str_extract(., sample_name_clean_a) %>%  # Extract meaningful parts of sample names
       str_remove_all(., sample_name_clean_b) -> sample_names(pw_mia_ps)
     
-    # Add metadata to the phyloseq object
-    pw_mia_ps %>% 
-      physeq_add_metadata(metadata = meta, 
-                          sample_column = sample_column) -> pw_mia_ps
-    
     # Add a prefix to sample names
     pw_mia_ps %>% 
       sample_names() %>% 
       paste0(sample_nam_prefix, .) -> sample_names(pw_mia_ps)
     
+    # Add metadata to the phyloseq object
+    pw_mia_ps %>% 
+      physeq_add_metadata(metadata = meta, 
+                          sample_column = sample_column) -> pw_mia_ps
     
     # Clean up the taxonomy table by removing unwanted patterns
     tax_table(pw_mia_ps) <- tax_table(pw_mia_ps) %>% 
@@ -358,9 +359,22 @@ import_humann_pathway_mia <- function(pathway = NULL,
 # "[[:punct:]]"
 ```
 
+Extract the metadata from our metaphlan phyloseq object:
+
+```{r}
+ps_up %>% 
+  sample_data() %>% 
+  data.frame() %>% 
+  rownames_to_column('tmp') -> metaph_metadata
+```
+
+Import HumAnN partway data and combine with the metadata of our metaphlan object:
+
 ```{r}
 pathway %>% 
-  import_humann_pathway_mia(rm_un = FALSE, # Remove UNMAPPED and UNINTEGRATED Pathways
+  import_humann_pathway_mia(meta = metaph_metadata, 
+                            sample_column = 'tmp',
+                            rm_un = FALSE, # Remove UNMAPPED and UNINTEGRATED Pathways
                             return_unstrat = FALSE, # 
                             add_CHOCOPhlAn_taxonomy = TRUE, # add Metaphlan/humann taxonomic path 
                             add_MetaCyc_pathway_map = FALSE) -> pw_mia # add MetaCyc pathway hierarchy
@@ -377,7 +391,8 @@ By default return Unstratified data:
 
 ```{r}
 pathway %>% 
-  import_humann_pathway_mia() -> pw_mia
+  import_humann_pathway_mia(meta = metaph_metadata, 
+                            sample_column = 'tmp') -> pw_mia
 
 pw_mia %>% 
   tax_table() %>% 
@@ -385,11 +400,13 @@ pw_mia %>%
 ```
 
 
-We can also import Gene family data:
+We can also import Gene family data e.g., KEGG:
 
 ```{r}
 kegg %>% 
-  import_humann_pathway_mia(rm_un = TRUE, 
+  import_humann_pathway_mia(meta = metaph_metadata, 
+                            sample_column = 'tmp',
+                            rm_un = TRUE, 
                             return_unstrat = FALSE,
                             add_CHOCOPhlAn_taxonomy = TRUE, 
                             add_MetaCyc_pathway_map = FALSE) -> kegg_mia # add_MetaCyc_pathway_map only for pathway level data
@@ -398,11 +415,13 @@ kegg_mia %>%
   tax_table() %>% 
   head()
 ```
-Let's focus on the unstratified data as a start:
+Let's focus on the unstratified data, then we can always go back to the the stratified data to check which taxa are contributing to particular functions:
 
 ```{r}
 kegg %>% 
-  import_humann_pathway_mia(rm_un = TRUE, 
+  import_humann_pathway_mia(meta = metaph_metadata, 
+                            sample_column = 'tmp',
+                            rm_un = TRUE, 
                             return_unstrat = TRUE,
                             add_CHOCOPhlAn_taxonomy = TRUE, 
                             add_MetaCyc_pathway_map = FALSE) -> kegg_mia
@@ -412,87 +431,72 @@ kegg_mia %>%
   head()
 ```
 
-## Use previous function for alpha - beta -features explorations:
+## Use previous function for alpha - beta - differentially abundant taxa/features (e.g., Pathway, gene) tests:
 
 ### Alpha:
 
 #### PWY:
 
+Let's focus on the unstratified data, then we can always go back to the the stratified data to check which taxa are contributing to particular functions:
+
 ```{r}
 alpha_measures = c("observed", "diversity_shannon", "diversity_inverse_simpson", "evenness_pielou")
 
 pw_mia %>% 
-  # subset_taxa(Class != "UNCLASSIFIED") %>% 
-  transform_sample_counts(function(x) x/sum(x) * 100) %>% # renorm or not??
+  transform_sample_counts(function(x) x/sum(x) * 100) %>% 
   phyloseq_alphas() %>% 
   pivot_longer(cols = all_of(alpha_measures), values_to = "value", names_to = 'alphadiversiy', values_drop_na  = TRUE) %>%
-  mutate(alphadiversiy = fct_relevel(alphadiversiy, alpha_measures)) -> alpha_long_df
-```
-
-```{r}
-alpha_long_df %>% 
+  mutate(alphadiversiy = fct_relevel(alphadiversiy, alpha_measures)) %>% 
   phyloseq_explore_alpha(facet_formula = "alphadiversiy ~ Sample",
                          group_by_stats = c("alphadiversiy", "Sample"),
                          stat_formula = "value ~ Time",
-                         padjust_method = "fdr",
-                         # stat_paired = FALSE,
-                         ref_group_stat = "TP1") -> out_sample_time
+                         padjust_method = "fdr") -> out_pway
 
-ls(out_sample_time)
+ls(out_pway)
 ```
 
+Metrics are not calculated on the taxa here but on the functional Pathways:
+
 ```{r}
-out_sample_time$alpha_plot
+out_pway$alpha_plot
 ```
 
 #### KO:
+
+We can do the same with Gene level information, e.g.: Kegg's Orthologues:
 
 ```{r}
 kegg_mia %>%
   physeq_glom_rename(taxrank = "feature", 
                      rename_ASV = "feature") %>% 
-  # subset_taxa(Class != "UNCLASSIFIED") %>% 
-  # transform_sample_counts(function(x) x/sum(x) * 10^6) %>% # renorm or not??
+  transform_sample_counts(function(x) x/sum(x) * 100) %>% 
   phyloseq_alphas() %>% 
   pivot_longer(cols = all_of(alpha_measures), values_to = "value", names_to = 'alphadiversiy', values_drop_na  = TRUE) %>%
-  mutate(alphadiversiy = fct_relevel(alphadiversiy, alpha_measures)) -> alpha_long_df
-```
-
-```{r}
-alpha_long_df %>% 
+  mutate(alphadiversiy = fct_relevel(alphadiversiy, alpha_measures)) %>% 
   phyloseq_explore_alpha(facet_formula = "alphadiversiy ~ Sample",
                          group_by_stats = c("alphadiversiy", "Sample"),
                          stat_formula = "value ~ Time",
                          padjust_method = "fdr",
                          # stat_paired = FALSE,
-                         ref_group_stat = "TP1") -> out_sample_time
+                         ref_group_stat = "TP1") -> out_kegg
 
-ls(out_sample_time)
+out_kegg$alpha_plot
 ```
-
-```{r}
-out_sample_time$alpha_plot
-```
-
 
 ### Beta:
-
-```{r}
-source(paste0(source_dir,"phyloseq_beta.R"))
-```
 
 #### PWY:
 
 ```{r, warning=FALSE, echo=FALSE}
 pw_mia %>%
   # subset_taxa(Class != "UNCLASSIFIED") %>% 
-  # transform_sample_counts(function(x) x/sum(x) * 1) %>%
+  transform_sample_counts(function(x) x/sum(x) * 100) %>%
   phyloseq_compute_bdiv() -> beta
 
 
 pw_mia %>% 
   # subset_taxa(Class != "UNCLASSIFIED") %>% 
-  # transform_sample_counts(function(x) x/sum(x) * 1) %>%
+  transform_sample_counts(function(x) x/sum(x) * 100) %>%
   microViz::dist_calc(., dist = "robust.aitchison") %>% 
   microViz::dist_get() %>% 
   magrittr::divide_by(100) -> beta$rAitchison
@@ -521,8 +525,7 @@ pw_mia %>%
                         seed = 123,
                         permanova_terms = c("Sample", "Time"),
                         strata = "none", 
-                        metadata_dist_boxplot = c("Subject", "Time", "Sample"),
-                        run_phyloseq_TW = FALSE) -> out
+                        metadata_dist_boxplot = c("Subject", "Time", "Sample")) -> out
 ```
 
 ```{r}
@@ -547,16 +550,15 @@ kegg_mia %>%
   physeq_glom_rename(taxrank = "feature", 
                      rename_ASV = "feature")  -> ps_tmp
 
-
 ps_tmp %>%
   # subset_taxa(Class != "UNCLASSIFIED") %>% 
-  # transform_sample_counts(function(x) x/sum(x) * 1) %>%
+  transform_sample_counts(function(x) x/sum(x) * 100) %>%
   phyloseq_compute_bdiv() -> beta
 
 
 ps_tmp %>% 
   # subset_taxa(Class != "UNCLASSIFIED") %>% 
-  # transform_sample_counts(function(x) x/sum(x) * 1) %>%
+  transform_sample_counts(function(x) x/sum(x) * 100) %>%
   microViz::dist_calc(., dist = "robust.aitchison") %>% 
   microViz::dist_get() %>% 
   magrittr::divide_by(100) -> beta$rAitchison
@@ -566,7 +568,7 @@ beta$sorensen <- NULL
 
 ps_tmp %>%
   # subset_taxa(Class != "UNCLASSIFIED") %>% 
-  # transform_sample_counts(function(x) x/sum(x) * 1) %>% 
+  transform_sample_counts(function(x) x/sum(x) * 100) %>%
   phyloseq_explore_beta(ps_up = .,
                         beta = beta,
                         color_group = "Time",
@@ -581,15 +583,26 @@ ps_tmp %>%
                         seed = 123,
                         permanova_terms = c("Sample", "Time"),
                         strata = "none", 
-                        metadata_dist_boxplot = c("Subject", "Time", "Sample"),
-                        run_phyloseq_TW = FALSE) -> out
+                        metadata_dist_boxplot = c("Subject", "Time", "Sample")) -> out
 ```
 
 
 ```{r}
 out$Sample
 ```
-### Diff abund:
+# Feature visualisation/ differential abundance tests:
+
+Since some of the functions for differential abundance analyses and taxa/feature visualization expect to find Kingdom, Phylum, Class, Order, Family, Genus and Species as `rank_names` we can check the structure of the data and the name of the columns organizing that hierarchy:
+
+```{r}
+pw_mia %>% 
+  tax_table() %>% 
+  head()
+```
+
+Here 'Superclass1', 'Superclass2' and  'feature' are the interesting ones:
+
+So we can use tax_mutate to organise (and copy) those data into Kingdom, Phylum, Class, Order, Family, Genus and Species columns.
 
 ```{r}
 pw_mia %>% 
@@ -600,18 +613,16 @@ pw_mia %>%
              Family = Superclass2,
              Genus = Superclass2,
              Species = feature) %>% 
-  physeq_sel_tax_table(c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")) %>% 
-  ps_mutate(Time = as.factor(Time),
-            Sample_Time = paste0(Sample, "_", Time),
-            Sample_Type = Sample) -> ps_tmp
+  physeq_sel_tax_table(c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")) -> ps_tmp
 ```
 
+Then the next steps look familiar!
 
 ```{r}
 ps_tmp %>% 
   phyloseq_top_heatmap_barplot(facet_formula = "Sample_Type ~ Time" , group_var = "Sample_Time",
                                tax_levels = c("Phylum", "Genus", "Species"),
-                               ntax = 4, ntax_species = 10, plot_heights = c(2, 1.4, 4),
+                               ntax = 4, ntax_species = 20, plot_heights = c(2.2, 1.5, 6),
                                boxplot_main_group = "Family",
                                rm_unclassified = FALSE,
                                facet_by = c("Sample_Type", "Time"),
@@ -629,718 +640,22 @@ t$p
 t$nested_legend
 ```
 
-```{r}
-MetaCyc_pathway_map %>% 
-  dplyr::filter(., grepl("fermentation",pathway)) -> ferm
+
+```{r, message=TRUE}
 
 ps_tmp %>% 
-  # subset_taxa(Family == "Ferm.") %>%
-  phyloseq_top_heatmap_barplot(facet_formula = "Sample_Type ~ Time" , group_var = "Sample_Time",
-                               tax_levels = c("Phylum", "Genus", "Species"),
-                               ntax = 4, ntax_species = 10, plot_heights = c(2, 1.4, 4),
-                               boxplot_main_group = "Family",
-                               rm_unclassified = FALSE,
-                               facet_by = c("Sample_Type", "Time"),
-                               group_by = c("Sample_Type", "Time"),
-                               facet_heat = "~ Sample_Type + Time ") -> t
-
-t$heat_all
-```
-
-```{r}
-ps_tmp %>% 
-  subset_taxa(Family == "Ferm.") %>% 
-  tax_glom(taxrank = "Species") %>%
-  transform_sample_counts(function(x) x / sum(x) * 100) %>% 
-  # filter_tax_table(get(tax) %in% out$most_ab_treat[[tax]]) %>%
-  phyloseq_ampvis_heatmap(
-    tax_aggregate = "Species",
-    physeq = .,
-    tax_add = NULL,
-    transform = FALSE,
-    facet_by = c("Sample_Type", "Time"),
-    group_by = c("Sample_Type", "Time"),
-    ntax = Inf
-  )
-```
-
-```{r}
-ps_tmp %>% 
-  # subset_taxa(Family == "Ferm.") %>% 
-  tax_glom(taxrank = "Family") %>%
-  transform_sample_counts(function(x) x / sum(x) * 100) %>% 
-  # filter_tax_table(get(tax) %in% out$most_ab_treat[[tax]]) %>%
-  phyloseq_ampvis_heatmap(
-    tax_aggregate = "Family",
-    physeq = .,
-    tax_add = NULL,
-    transform = FALSE,
-    facet_by = c("Sample_Type", "Time"),
-    group_by = c("SampleID"),
-    ntax = Inf
-  )
-```
-
-```{r}
-group_var = "Sample_Time"
-tax = "Species"
-barplot_level = "Species"
-ntax = 10
-ntax_species= 8
-
-ps_up %>%
-  tax_glom(taxrank = tax) %>%
-  physeq_most_abundant(
-    physeq = .,
-    group_var = group_var,
-    tax_level = tax,
-    ntax = ifelse(tax == "Species", ntax_species, ntax)) -> list
-
-ps_up %>%
-  transform_sample_counts(function(x) x / sum(x) * 1000) %>%
-  tax_glom(taxrank = tax) %>%
-  filter_tax_table(get(tax) %in% list) %>%
-  tax_mutate(Strain = NULL) %>%
-  phyloseq_ampvis_heatmap(
-    tax_aggregate = tax,plot_values = FALSE,
-    physeq = .,
-    tax_add = NULL,
-    transform = FALSE,
-    facet_by = NULL,
-    group_by = group_by,
-    ntax = Inf
-  )
-```
-
-
-```{r}
-# Create a bar plot with abundance proportions at specified taxonomic level
-bar_plot <- ps_up %>%
-  subset_taxa(Class != "UNCLASSIFIED") %>%
-  tax_glom(barplot_level) %>%
-  transform_sample_counts(function(x) x / sum(x) * 100) %>%
-  filter_tax_table(get(barplot_level) %in% list) %>%
-  microViz::comp_barplot(
-    bar_width = 1,
-    n_taxa = length(list),
-    tax_transform_for_plot = "identity",
-    taxon_renamer = function(x) stringr::str_replace_all(x, "_", " "),
-    label = plot_x,
-    # x = plot_x,
-    tax_level = barplot_level,
-    merge_other = FALSE
-  ) +
-  ylab("Proportion - %") +
-  theme_linedraw() +
-  # theme(axis.ticks = element_blank(), axis.text.x = element_blank())
-  theme(axis.ticks = element_blank())
-
-bar_plot
-
-```
-
-
-
-
-
-```{r}
-tax="pathway_code"
-selection=c("PWY-6122",
-            "PWY-6277",
-            "PWY-7229",
-            "PWY-6121")
-
-pw_mia_ps %>% 
-  transform_sample_counts(function(x) x / sum(x) * 100) %>%
-  tax_glom(taxrank = tax) %>%
-  filter_tax_table(get(tax) %in% selection ) %>%
-  # tax_mutate(Strain = NULL) %>%
-  phyloseq_ampvis_heatmap(
-    tax_aggregate = tax,
-    physeq = .,
-    tax_add = NULL,
-    transform = FALSE,
-    facet_by = c("Sample_Type", "Time") ,
-    group_by = c("Sample_Type", "Time") ,
-    ntax = Inf
-  )
-
-barplot_level="pathway_code"
-selection=c("PWY-6122",
-            "PWY-6277",
-            "PWY-7229",
-            "PWY-6121")
-
-bar_plot <- 
-  pw_mia_ps %>%
-  tax_glom(barplot_level) %>%
-  transform_sample_counts(function(x) x / sum(x) * 10^6) %>%
-  filter_tax_table(get(barplot_level) %in% selection) %>%
-  microViz::comp_barplot(
-    bar_width = 1,
-    n_taxa = length(selection),
-    tax_transform_for_plot = "identity",
-    taxon_renamer = function(x) stringr::str_replace_all(x, "_", " "),
-    label = "Subject",
-    # x = plot_x,
-    tax_level = barplot_level,
-    merge_other = FALSE
-  ) +
-  ylab("Proportion - %") +
-  theme_linedraw() +
-  # theme(axis.ticks = element_blank(), axis.text.x = element_blank())
-  theme(axis.ticks = element_blank())
-
-```
-
-
-```{r}
-import_human_data_ps <- function(path,
-                                 type = "# Pathway",
-                                 sub_pat_a = "_trimmed_HF_merged_Abundance-RELAB",
-                                 sub_pat_b = "_subset50",
-                                 sample_name_clean_a = "[^_]+",
-                                 sample_name_clean_b = "[A-Z]",
-                                 meta = here::here("../../data/processed_data/metaphlan/Metadata_Deerland_Study.xlsx") %>% 
-                                   read_excel(sheet = "Trial2"),
-                                 sample_column = "ID",
-                                 sample_nam_prefix = "S_"){
-  
-  
-  pathway %>%
-    humann_2df(type = type) %>% 
-    clean_humann_df() %>% 
-    humann_2phyloseq() %>% 
-    clean_phyloseq_sample_names(sub_pat = 
-                                  sub_pat_a) %>% 
-    clean_phyloseq_sample_names(sub_pat = 
-                                  sub_pat_b) -> ps
-  
-  ps %>% 
-    sample_names() %>% 
-    str_extract(.,sample_name_clean_a) %>% 
-    str_remove_all(., sample_name_clean_b) -> sample_names(ps)
-  
-  
-  ps %>% 
-    physeq_add_metadata(metadata = meta,
-                        sample_column = sample_column) -> ps
-  
-  ps %>% 
-    sample_names() %>% 
-    paste0(sample_nam_prefix, .) -> sample_names(ps)
-  
-  ps %>%
-    microViz::ps_mutate(Time = factor(Time, levels = c("TP1", "TP2", "TP3")),
-                        Period = Time,
-                        time = parse_number(as.character(Time)),
-                        Sample_Type =  Sample,
-                        Period = recode(Period, TP1  = "Baseline"),
-                        Sex = recode(sex, Male = 1, Female = 2),
-                        Sample = factor(Sample, levels = c("Saliva", "Plaque")),
-                        Subject = fct_relevel(Subject, "D01"),
-                        Sample_Time = paste0(Sample,"_", Time)
-    ) -> ps
-  
-  
-  return(ps)
-  
-  # ps %>% 
-  #   microViz::ps_mutate('Time = factor(Time, levels = c("TP1", "TP2", "TP3")') -> ps
-  # # ask microViz dev how to parse text as expression there ps_mutate
-  # ps %>% 
-  #   microViz::ps_mutate(get('Time = factor(Time, levels = c("TP1", "TP2", "TP3")')) -> ps
-  # 
-  # ps %>% 
-  #   microViz::ps_mutate('Time = factor(Time, levels = c("TP1", "TP2", "TP3")') -> ps
-  # 
-  # rlang::parse_exprs('Time = factor(Time, levels = c("TP1", "TP2", "TP3"));
-  #                    Period = Time') -> exprs
-  # 
-  # rlang::parse_expr('Time = factor(Time, levels = c("TP1", "TP2", "TP3"))') -> expr
-  # 
-  # rlang::eval_tidy('Time = factor(Time, levels = c("TP1", "TP2", "TP3"))') -> eval_tidy
-  # #   diff_ab_out %>% 
-  # dplyr::filter(rlang::eval_tidy(rlang::parse_expr(diff_ab_filter))) %>% 
-  # pull(rlang::parse_expr(taxa_sel_col)) -> taxa_sel
-  
-}
-```
-
-```{r}
-pathway %>% 
-  import_human_data_ps() -> out
-```
-
-then use a list...
-
-
-
-
-## Using `file2meco::humann2meco()` :
-
-
-```{r}
-library(file2meco)
-library(microeco)
-library(magrittr)
-sample_file_path <- system.file("extdata", "example_metagenome_sample_info.tsv",
-                                package="file2meco")
-match_file_path <- system.file("extdata", "example_metagenome_match_table.tsv", package="file2meco")
-# MetaCyc pathway examples
-# use the raw data files stored inside the package for MetaCyc pathway database based analysis
-abund_file_path <- system.file("extdata", "example_HUMAnN_MetaCyc_abund.tsv", package="file2meco")
-# the default db is "MetaCyc"
-humann2meco(abund_file_path, db = "MetaCyc")
-humann2meco(abund_file_path, db = "MetaCyc", sample_table = sample_file_path,
-            match_table = match_file_path)
-test <- humann2meco(abund_file_path, db = "MetaCyc", sample_table = sample_file_path,
-                    match_table = match_file_path)
-
-```
-
-
-```{r}
-load_human_db_phyloseq <- function(file_path = NULL,
-                                   db = "MetaCyc",
-                                   rank = "pathway",
-                                   tax_clean_gsub = "[a-t]__",
-                                   no_sel = c(NA, "<NA>","NA", "unclassified"),
-                                   sub_pat_a = "_trimmed_HF_merged_Abundance-RELAB",
-                                   sub_pat_b = "_subset50",
-                                   tax_na_if = "unclassified",
-                                   sample_name_clean_a = "[^_]+",
-                                   sample_name_clean_b = "[A-Z]",
-                                   meta = here::here("../../data/processed_data/metaphlan/Metadata_Deerland_Study.xlsx") %>% 
-                                     read_excel(sheet = "Trial2"),
-                                   sample_column = "ID",
-                                   sample_nam_prefix = "S_",
-                                   return_unstrat = FALSE){
-  
-  suppressMessages(suppressWarnings({
-    
-    # Load required libraries
-    require(microeco); require(file2meco)     # For ecological and microbial ecology data analysis
-    require(microViz)   # An extension of phyloseq for speedy data manipulation
-    data(MetaCyc_pathway_map)  # Load MetaCyc pathway map dataset
-    
-    '%!in%' <- function(x,y)!('%in%'(x,y))
-    
-    # Convert a HUMAnN2 output file to a 'meco' object, then to a phyloseq object
-    file_path %>% 
-      file2meco::humann2meco(., db = db) %>%  # Convert HUMAnN2 output to 'meco' object
-      meco2phyloseq() -> pw_me_ps            # Convert 'meco' object to phyloseq object
-    
-    # Clean sample names by applying various substitution patterns iteratively
-    pw_me_ps %>%  
-      clean_phyloseq_sample_names(sub_pat = sub_pat_a) %>% 
-      clean_phyloseq_sample_names(sub_pat = sub_pat_b) -> pw_me_ps
-    
-    # Extract and clean sample names
-    pw_me_ps %>% 
-      sample_names() %>% 
-      str_extract(., sample_name_clean_a) %>%  # Extract meaningful parts of sample names
-      str_remove_all(., sample_name_clean_b) -> sample_names(pw_me_ps)
-    
-    # Add metadata to the phyloseq object
-    pw_me_ps %>% 
-      physeq_add_metadata(metadata = meta, 
-                          sample_column = sample_column) -> pw_me_ps
-    
-    # Add a prefix to sample names
-    pw_me_ps %>% 
-      sample_names() %>% 
-      paste0(sample_nam_prefix, .) -> sample_names(pw_me_ps)
-    
-    
-    # Clean up the taxonomy table by removing unwanted patterns
-    tax_table(pw_me_ps) <- tax_table(pw_me_ps) %>% 
-      gsub(pattern = tax_clean_gsub, replacement = "") %>%  # Remove specific patterns
-      data.frame() %>%  
-      as.matrix() %>%  
-      tax_table()
-    
-    # Replace "unclassified" entries with NA in the taxonomy table
-    tax_table(pw_me_ps) <- tax_table(pw_me_ps) %>% 
-      data.frame() %>% 
-      mutate_all(na_if, tax_na_if) %>%  # Convert "unclassified" to NA
-      as.matrix() %>%  
-      tax_table()
-    
-    # Filter taxonomy table based on conditions (commented lines suggest alternative filters)
-    pw_me_ps %>%
-      speedyseq::filter_tax_table(get(rank) %!in% eval(as.character(no_sel))) -> pw_me_ps
-    # tax_mutate(Strain = NULL) %>%
-    # microViz::tax_select(ranks_searched = rank, tax_list = eval(as.character(no_sel)),
-    # deselect = TRUE) -> pw_me_ps_2              # Optional taxonomic selection step
-    ## speedyseq::filter_tax_table(!eval(as.name((rank))) %in% no_sel) -> pw_me_ps# Exclude unwanted taxonomic ranks
-    ## speedyseq::filter_tax_table(is.na("pathway")) %>%     # Alternative: filter NA pathways
-    
-    # pw_me_ps %>% 
-    #   subset_taxa(is.na(Genus)) -> pw_me_ps
-    
-    
-    pw_me_ps %>% 
-      microViz::tax_mutate(feature = taxa_names(pw_me_ps)) -> pw_me_ps
-    
-    
-    if (return_unstrat){
-      
-      rank="Genus"
-      no_sel=c(NA,"NA", "<NA>")
-      
-      pw_me_ps %>% 
-        speedyseq::filter_tax_table(get(rank) %in% eval(as.character(no_sel))) -> pw_me_ps
-      
-      taxa_names(pw_me_ps) <- taxa_names(pw_me_ps) %>% 
-        stringi::stri_extract(., regex = '[^:]*') 
-      
-    }
-    # Return the cleaned and updated phyloseq object
-    return(pw_me_ps)
-  }))
-}
-```
-
-Stratified output with UNMAPPED/UNINTEGRATED:
-
-```{r}
-pathway %>%
-  load_human_db_phyloseq(no_sel = FALSE) -> human_pway
-
-human_pway %>% 
-  tax_table() %>% 
-  head()
-```
-
-Stratified output with UNMAPPED/UNINTEGRATED:
-
-```{r}
-pathway %>% 
-  load_human_db_phyloseq(return_unstrat = TRUE) -> human_pway
-
-human_pway %>% 
-  tax_table() %>% 
-  head()
-```
-
-
-```{r}
-source("https://raw.githubusercontent.com/fconstancias/KU_Caroline/refs/heads/main/code/functions/phyloseq_functions.R")
-
-human_pway %>% 
-  phyloseq_top_heatmap_barplot(ps_up = .,
-                               tax_levels = c("Superclass1", "Superclass2", "pathway"), 
-                               group_var = "Sample",
-                               facet_formula = "Sample_Type ~ Time" , 
-                               ntax = 5, ntax_species = 10, plot_heights = c(1.4, 1.4, 4),
-                               barplot_level = "pathway", rm_unclassified = FALSE, 
-                               boxplot_main_group = "Superclass2") -> out
-
-
-
-```
-
-```{r}
-human_pway %>% 
-  tax_mutate(Strain = NULL) %>%
-  phyloseq_ampvis_heatmap(
-    tax_aggregate = "Superclass2",
-    physeq = .,
-    tax_add = NULL,
-    transform = FALSE,
-    facet_by = c("Sample_Type", "Time") ,
-    group_by = c("Sample_Type", "Time") ,
-    ntax = 4
-  )
-
-
-bar_plot <- human_pway %>%
-  # tax_fix() %>% 
-  tax_glom(taxrank = "pathway") %>% 
-  # physeq_glom_rename(taxrank = "pathways", rename_ASV = "pathways") %>%
-  # transform_sample_counts(function(x) x / sum(x) * 100) %>%
-  # filter_tax_table(get(barplot_level) %in% out$most_ab_treat[[barplot_level]]) %>%
-  microViz::comp_barplot(
-    bar_width = 1,
-    n_taxa = 18, #length(out$most_ab_treat[[barplot_level]]),
-    tax_transform_for_plot = "identity",
-    # taxon_renamer = function(x) stringr::str_replace_all(x, "_", " "),
-    label = "Subject",
-    # x = plot_x,
-    tax_level = "pathway",
-    merge_other = TRUE
-  ) +
-  ylab("Proportion - %") +
-  theme_linedraw() +
-  # theme(axis.ticks = element_blank(), axis.text.x = element_blank())
-  theme(axis.ticks = element_blank())
-
-
-
-```
-
-! otu_table values must not be negative when aggregating
-
-PWY-7409                           PWY-7237 
-0.2714770                      -1523.6362671 
-
-
-
-```{r}
-pathway %>% 
-  load_human_db_phyloseq() -> human_pway_strat
-```
-
-
-```{r}
-rxn %>% 
-  load_human_db_phyloseq(file_path = .,
-                         # no_sel = c(NA),
-                         return_unstrat = TRUE) -> human_rxn
-
-tax_table(human_rxn) %>% 
-  tail()
-```
-
-```{r}
-rxn %>% 
-  load_human_db_phyloseq(path = .,
-                         rank = "pathway",
-                         no_sel = c(NA),
-                         return_unstrat = TRUE) -> human_rxn
-
-tax_table(human_rxn) %>% 
-  tail()
-```
-
-
-```{r}
-l4c %>% 
-  file2meco::humann2meco(., db = "MetaCyc") %>% 
-  meco2phyloseq() -> l4c_me_ps
-
-
-l4c_me_ps %>% 
-  subset_taxa((!grepl("^un", pathway))) %>% 
-  tax_table()
-```
-
-
-
-```{r}
-kegg %>% 
-  file2meco::humann2meco(., db = "KEGG") -> tt
-
-
-metacyc_pathway_website
-
-tt %>% 
-  meco2phyloseq -> kegg_me_ps
-
-kegg_me_ps  %>% 
-  subset_taxa(!(grepl("^un", pathway))) %>% 
-  tax_table()
-```
-
-
-## Using other packages:
-
-https://chiliubio.github.io/microeco_tutorial/file2meco-package.html
-https://rdrr.io/github/microbiome/mia/man/importHUMAnN.html
-
-
-```{r}
-require(mia)
-package.version('mia')
-# File path
-file_path <- system.file("extdata", "humann_output.tsv", package = "mia")
-# Import data
-tse <- importHUMAnN(file_path)
-
-ps %>% 
-  mia::convertFromPhyloseq()
-
-tse %>% 
-  mia::convertToPhyloseq()
-```
-
-
-https://docs.google.com/presentation/d/156xIwIIuwShjnyV_RJr-N-ZTRXzqqCDFTM4-6Y2EvPU/edit#slide=id.g311b0b4c0ba_0_0
-
-https://microbiome.github.io/OMA/docs/devel/pages/IntegratedLearner.html combine metaphlan humann ... https://microbiome.github.io/OMA/docs/devel/pages/MSEA.html 
-https://github.com/CarlosMoraMartinez/depression_scripts/blob/main/ko_module_cm.R
-https://github.com/thomazbastiaanssen/Tjazi
-
-
-```{r}
-ps_gn %>% 
-  physeq_add_metadata(metadata = meta,
-                      sample_column = "ID") -> ps_gn
-```
-
-phyloseq doenst like numbers in sample names, just add S_ to those:
-
-```{r}
-ps_gn %>% 
-  sample_names() %>% 
-  paste0("S_", .) -> sample_names(ps_gn)
-```
-
-
-```{r}
-humann_2df(humann_renamed = .) %>% 
-  clean_humann_df() %>% 
-  humann_2phyloseq() %>% 
-  clean_phyloseq_sample_names(sub_pat = 
-                                "_trimmed_HF_merged_Abundance-RELAB") %>% 
-  clean_phyloseq_sample_names(sub_pat = 
-                                "_subset50")
-
-```
-
-```{r}
-input <- list(pathway_ps = "~/Documents/GitHub/oral-microbiome/data/processed/humann_pw_ps.RDS",
-              kegg_ps = "~/Documents/GitHub/oral-microbiome/data/processed/humann_kegg_ps.RDS",
-              l4c_ps = "~/Documents/GitHub/oral-microbiome/data/processed/humann_l4c_ps.RDS",
-              go_ps = "~/Documents/GitHub/oral-microbiome/data/processed/humann_go_ps.RDS",
-              infogo_ps = "~/Documents/GitHub/oral-microbiome/data/processed/humann_infogo_ps.RDS",
-              metac_ps = "~/Documents/GitHub/oral-microbiome/data/processed/humann_metac_ps.RDS",
-              pfam_ps = "~/Documents/GitHub/oral-microbiome/data/processed/humann_pfam_ps.RDS")
-```
-
-```{r}
-# "/Users/ljc444/Documents/Caroline/temp_results/humann/Merged_genefamilies_uniref90_eggnog_relab.tsv" %>% 
-"/Users/ljc444/Documents/Caroline/temp_results/humann/Merged_genefamilies_uniref90_go_renamed_relab.tsv" %>% 
-  humann_2df(humann_renamed = .) %>% 
-  clean_humann_df() %>% 
-  humann_2phyloseq() %>% 
-  clean_phyloseq_sample_names(sub_pat = 
-                                "_trimmed_HF_merged_Abundance-RELAB") %>% 
-  clean_phyloseq_sample_names(sub_pat = 
-                                "_subset50") -> ps_gn
-
-ps_gn
-```
-
-
-```{r}
-# tax_table(ps_gn) %>% 
-ps_gn %>%
-  subset_taxa(!(grepl("^UN", Feature))) %>% 
-  tax_table() %>% as.data.frame() -> tax
-# DT::datatable()
-
-tax
-```
-
-```{r}
-# tax_table(ps_gn) %>% 
-ps_gn %>%
-  filter_tax_table(!grepl("^UN", Feature)) %>%
-  filter_tax_table(is.na(organism)) -> tmp
-
-tmp %>% 
-  tax_table()
-```
-
-```{r}
-tmp %>% 
-  tax_glom('Feature') %>% 
-  otu_table()
-```
-
-
-```{r}
-tmp %>% 
-  tax_glom('Feature') %>% 
-  sample_sums()
-```
-
-
-Adapt with fake taxonomy so micro eco functions and other works? need to first test if they do work?
-check how to import everything.
-
-```{r}
-ps_gn %>% 
-  phyloseq_get_humann_strat_un_output(output = "stratified", # stratified / unstratified
-                                      remove_unmapped_unintegrated = TRUE,
-                                      transform = "compositional",# from microbiome:: 'compositional' (ie relative abundance), 'Z', 'log10', 'log10p', 'hellinger', 'identity', 'clr', or any method from the vegan::decostand function.
-                                      export_long_df = TRUE,
-                                      rm_un_sp = TRUE) -> tt
-
-tt$df
-```
-
-
-```{r}
-ps_gn %>% 
-  sample_names() %>% 
-  str_extract(.,"[^_]+") %>% 
-  str_remove_all(., "[A-Z]")  -> sample_names(ps_gn)
-```
-
-
-```{r}
-here::here("../../data/processed_data/metaphlan/Metadata_Deerland_Study.xlsx") %>% 
-  read_excel(sheet = "Trial2") -> meta
-
-meta %>% 
-  DT::datatable()
-```
-
-```{r}
-ps_gn %>% 
-  physeq_add_metadata(metadata = meta,
-                      sample_column = "ID") -> ps_gn
-```
-
-phyloseq doenst like numbers in sample names, just add S_ to those:
-
-```{r}
-ps_gn %>% 
-  sample_names() %>% 
-  paste0("S_", .) -> sample_names(ps_gn)
-```
-
-```{r}
-ps_gn
-```
-
-```{r}
-ps_gn %>% 
-  microViz::ps_mutate(Time = factor(Time, levels = c("TP1", "TP2", "TP3")),
-                      Period = Time,
-                      time = parse_number(as.character(Time)),
-                      Sample_Type =  Sample,
-                      Period = recode(Period, TP1  = "Baseline"),
-                      Sex = recode(sex, Male = 1, Female = 2),
-                      Sample = factor(Sample, levels = c("Saliva", "Plaque")),
-                      Subject = fct_relevel(Subject, "D01"),
-                      Sample_Time = paste0(Sample,"_", Time) 
-  ) -> ps_up
-
-ps_up %>% 
-  sample_data(.) %>% 
-  data.frame() -> dfdf
-
-dfdf %>% 
-  DT::datatable()
-```
-
-
-
-```{r}
-save(period_pal,
-     sample_pal,
-     sex_pal,
-     sub_pal,
-     time_pal, file = here::here("../../data/processed_data/humann/01_data.Rdata"))
-```
-
-
-```{r}
-saveRDS(object = ps_up, file = here::here("../../data/processed_data/humann/humann_phyloseq.RDS"))
+  subset_samples(Time == "TP1") %>% 
+  phyloseq_diff_abundance(ps_tmp = ., 
+                          approach = c("run_lefse"),
+                          comp_group = "Sample_Type",
+                          glom = "Species", # agglomerate data at the species level
+                          taxa_rank = "Species", # perform comparison at the genus level
+                          lefse_lda_cutoff = 3, # filter results so only strong differences are displayed 
+                          pvalue_cutoff = 0.0001, # filter results so only strong differences are displayed 
+                          palette = sample_pal) -> lefse_TP1
+
+
+lefse_TP1$mmlefse_p
 ```
 
 

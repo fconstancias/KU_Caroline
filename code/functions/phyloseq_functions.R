@@ -70,7 +70,7 @@ import_humann_pathway_mia <- function(pathway = NULL,
   
   suppressMessages(suppressWarnings({
     # Load required libraries
-    require(microeco); require(file2meco)# For ecological and microbial ecology data analysis
+    require(microeco); require(file2meco) # For ecological and microbial ecology data analysis
     # require(microViz)   # An extension of phyloseq for speedy data manipulation
     
     pathway %>% 
@@ -89,16 +89,15 @@ import_humann_pathway_mia <- function(pathway = NULL,
       str_extract(., sample_name_clean_a) %>%  # Extract meaningful parts of sample names
       str_remove_all(., sample_name_clean_b) -> sample_names(pw_mia_ps)
     
-    # Add metadata to the phyloseq object
-    pw_mia_ps %>% 
-      physeq_add_metadata(metadata = meta, 
-                          sample_column = sample_column) -> pw_mia_ps
-    
     # Add a prefix to sample names
     pw_mia_ps %>% 
       sample_names() %>% 
       paste0(sample_nam_prefix, .) -> sample_names(pw_mia_ps)
     
+    # Add metadata to the phyloseq object
+    pw_mia_ps %>% 
+      physeq_add_metadata(metadata = meta, 
+                          sample_column = sample_column) -> pw_mia_ps
     
     # Clean up the taxonomy table by removing unwanted patterns
     tax_table(pw_mia_ps) <- tax_table(pw_mia_ps) %>% 

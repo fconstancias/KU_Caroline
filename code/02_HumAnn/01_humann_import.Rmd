@@ -16,7 +16,7 @@ output:
 rm(list = ls())
 gc()
 
-invisible(lapply(paste0('package:', names(sessionInfo()$otherPkgs)), detach, character.only=TRUE, unload=TRUE))
+# invisible(lapply(paste0('package:', names(sessionInfo()$otherPkgs)), detach, character.only=TRUE, unload=TRUE))
 # options(java.parameters = "-Xmx80000m")
 ```
 
