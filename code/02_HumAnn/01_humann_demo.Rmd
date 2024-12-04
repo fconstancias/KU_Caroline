@@ -45,23 +45,24 @@ source_dir = "https://raw.githubusercontent.com/fconstancias/DivComAnalyses/mast
 
 source(paste0(source_dir,"phyloseq_biobakery_functions.R"))
 source(paste0(source_dir,"phyloseq_varia.R"))
+source(paste0(source_dir,"phyloseq_alpha.R"))
+source(paste0(source_dir,"phyloseq_beta.R"))
+
+source("https://raw.githubusercontent.com/fconstancias/metabaRpipe-source/master/Rscripts/functions.R")
+source("https://raw.githubusercontent.com/fconstancias/KU_Caroline/refs/heads/main/code/functions/phyloseq_functions.R")
 
 ```
-
-To read further: <https://forum.biobakery.org/t/metacyc-hierarchy-to-invetigate-identify-specific-pathways/1830/15>; <https://forum.biobakery.org/t/how-to-do-cazy-gene-profiling/2669>;
-<https://github.com/WeersmaLabIBD/P-NET-project>
 
 
 # Import and get ready:
 
-## Using custom built functions:
-
-https://github.com/fconstancias/oral-microbiome/blob/master/exploration/humann_metaphlan_data_import.md
-https://htmlpreview.github.io/?https://github.com/fconstancias/oral-microbiome/blob/master/exploration/210312_pway.html
+Import previous metaphlan data so we will get the metadata from there:
 
 ```{r}
 load(here::here("../../data/processed_data/metaphlan/01_data.Rdata"))
 ```
+
+Define path of the PWY and Gene family table.- output of HumAn
 
 ```{r}
 pathway <- "/Users/ljc444/Documents/Caroline/temp_results/humann/Merged_pathabundance_cpm.tsv"
@@ -73,27 +74,8 @@ rxn <- "/Users/ljc444/Documents/Caroline/temp_results/humann/Merged_genefamilies
 pfam <- "/Users/ljc444/Documents/Caroline/temp_results/humann/Merged_genefamilies_uniref90_pfam_renamed_relab.tsv"
 ```
 
-## Using `mia::importHUMAnN()` :
 
-```{r}
-pathway %>% 
-  mia::importHUMAnN()  %>% 
-  mia::convertToPhyloseq() -> h_mia_ps
-
-h_mia_ps
-
-tax_table(h_mia_ps) %>% 
-  tail()
-otu_table(h_mia_ps) %>% 
-  tail()
-
-h_mia_ps %>% 
-  taxa_sums() %>% 
-  sort(decreasing = T) %>% 
-  tail()
-```
-
-```{r, eval=FALSE}
+```{r, eval=TRUE}
 #' Import and Process HUMAnN Pathway Data for Microbial Ecology Analysis
 #'
 #' This function imports HUMAnN pathway data, processes it into a `phyloseq` object, 
@@ -166,7 +148,7 @@ import_humann_pathway_mia <- function(pathway = NULL,
   
   suppressMessages(suppressWarnings({
     # Load required libraries
-    require(microeco); require(file2meco); require(mia)     # For ecological and microbial ecology data analysis
+    require(microeco); require(file2meco) # For ecological and microbial ecology data analysis
     # require(microViz)   # An extension of phyloseq for speedy data manipulation
     
     pathway %>% 
@@ -378,6 +360,23 @@ import_humann_pathway_mia <- function(pathway = NULL,
 
 ```{r}
 pathway %>% 
+  import_humann_pathway_mia(rm_un = FALSE, # Remove UNMAPPED and UNINTEGRATED Pathways
+                            return_unstrat = FALSE, # 
+                            add_CHOCOPhlAn_taxonomy = TRUE, # add Metaphlan/humann taxonomic path 
+                            add_MetaCyc_pathway_map = FALSE) -> pw_mia # add MetaCyc pathway hierarchy
+
+pw_mia %>% 
+  tax_table() %>% 
+  head()
+
+pw_mia %>% 
+  tax_table() %>% 
+  tail()
+```
+By default return Unstratified data:
+
+```{r}
+pathway %>% 
   import_humann_pathway_mia() -> pw_mia
 
 pw_mia %>% 
@@ -385,110 +384,33 @@ pw_mia %>%
   head()
 ```
 
-```{r}
-pathway %>% 
-  import_humann_pathway_mia(add_CHOCOPhlAn_taxonomy = FALSE) -> pw_mia
 
-pw_mia %>% 
-  tax_table() %>% 
-  head()
-```
+We can also import Gene family data:
 
-```{r}
-pathway %>% 
-  import_humann_pathway_mia(rm_un = FALSE, return_unstrat = FALSE,add_CHOCOPhlAn_taxonomy = FALSE, add_MetaCyc_pathway_map = TRUE) -> pw_mia
-
-pw_mia %>% 
-  tax_table() %>% 
-  head()
-```
-
-```{r}
-pathway %>% 
-  import_humann_pathway_mia(rm_un = TRUE, return_unstrat = TRUE,add_CHOCOPhlAn_taxonomy = TRUE, add_MetaCyc_pathway_map = TRUE) -> pw_mia
-
-pw_mia %>% 
-  tax_table() %>% 
-  head()
-```
 ```{r}
 kegg %>% 
-  import_humann_pathway_mia(rm_un = TRUE, return_unstrat = FALSE,add_CHOCOPhlAn_taxonomy = TRUE, add_MetaCyc_pathway_map = FALSE) -> kegg_mia
+  import_humann_pathway_mia(rm_un = TRUE, 
+                            return_unstrat = FALSE,
+                            add_CHOCOPhlAn_taxonomy = TRUE, 
+                            add_MetaCyc_pathway_map = FALSE) -> kegg_mia # add_MetaCyc_pathway_map only for pathway level data
 
 kegg_mia %>% 
   tax_table() %>% 
   head()
 ```
+Let's focus on the unstratified data as a start:
 
 ```{r}
 kegg %>% 
-  import_humann_pathway_mia(rm_un = TRUE, return_unstrat = TRUE,add_CHOCOPhlAn_taxonomy = TRUE, add_MetaCyc_pathway_map = FALSE) -> kegg_mia
+  import_humann_pathway_mia(rm_un = TRUE, 
+                            return_unstrat = TRUE,
+                            add_CHOCOPhlAn_taxonomy = TRUE, 
+                            add_MetaCyc_pathway_map = FALSE) -> kegg_mia
 
 kegg_mia %>% 
   tax_table() %>% 
   head()
 ```
-
-```{r}
-rxn %>% 
-  import_humann_pathway_mia(rm_un = TRUE, return_unstrat = TRUE,add_CHOCOPhlAn_taxonomy = FALSE, add_MetaCyc_pathway_map = FALSE,
-                            final_tax_table_ranks = c("feature", "feature_code")
-  ) -> rxn_mia
-
-rxn_mia %>% 
-  tax_table() %>% 
-  head()
-```
-
-```{r}
-pfam %>% 
-  import_humann_pathway_mia(rm_un = TRUE, return_unstrat = TRUE,add_CHOCOPhlAn_taxonomy = FALSE, add_MetaCyc_pathway_map = FALSE,
-                            final_tax_table_ranks = c("feature", "feature_code")
-  ) -> pfam_mia
-
-pfam_mia %>% 
-  tax_table() %>% 
-  head()
-```
-
-```{r}
-eggnog %>% 
-  import_humann_pathway_mia(rm_un = TRUE, return_unstrat = TRUE,add_CHOCOPhlAn_taxonomy = FALSE, add_MetaCyc_pathway_map = FALSE,
-                            final_tax_table_ranks = c("feature")
-  ) -> eggnog_mia
-
-eggnog_mia %>% 
-  tax_table() %>% 
-  head()
-```
-
-
-```{r, eval=FALSE}
-go %>% 
-  import_humann_pathway_mia(rm_un = TRUE, return_unstrat = TRUE, add_CHOCOPhlAn_taxonomy = FALSE, add_MetaCyc_pathway_map = FALSE,
-                            final_tax_table_ranks = c("feature", "feature_code")
-  ) -> go_mia
-
-go_mia %>% 
-  tax_table() %>% 
-  head()
-```
-Error in `taxa_names<-`(`*tmp*`, value = taxa_names(pw_mia_ps) %>% stringi::stri_extract(.,  : 
-taxa_names<-: You are attempting to assign duplicated taxa_names
-
-
-
-```{r}
-l4c %>% 
-  import_humann_pathway_mia(rm_un = TRUE, return_unstrat = FALSE,add_CHOCOPhlAn_taxonomy = TRUE, add_MetaCyc_pathway_map = FALSE,
-                            final_tax_table_ranks = c("feature")
-  ) -> l4c_mia
-
-l4c_mia %>% 
-  tax_table() %>% 
-  head()
-```
-
 
 ## Use previous function for alpha - beta -features explorations:
 
@@ -497,17 +419,11 @@ l4c_mia %>%
 #### PWY:
 
 ```{r}
-source(paste0(source_dir,"phyloseq_alpha.R"))
-
-source("https://raw.githubusercontent.com/fconstancias/KU_Caroline/refs/heads/main/code/functions/phyloseq_functions.R")
-
-# alpha_measures = c("observed", "diversity_shannon", "diversity_inverse_simpson", "diversity_coverage", "evenness_pielou")
 alpha_measures = c("observed", "diversity_shannon", "diversity_inverse_simpson", "evenness_pielou")
-
 
 pw_mia %>% 
   # subset_taxa(Class != "UNCLASSIFIED") %>% 
-  transform_sample_counts(function(x) x/sum(x) * 10^6) %>% # renorm or not??
+  transform_sample_counts(function(x) x/sum(x) * 100) %>% # renorm or not??
   phyloseq_alphas() %>% 
   pivot_longer(cols = all_of(alpha_measures), values_to = "value", names_to = 'alphadiversiy', values_drop_na  = TRUE) %>%
   mutate(alphadiversiy = fct_relevel(alphadiversiy, alpha_measures)) -> alpha_long_df

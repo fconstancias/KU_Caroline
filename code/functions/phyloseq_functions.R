@@ -70,7 +70,7 @@ import_humann_pathway_mia <- function(pathway = NULL,
   
   suppressMessages(suppressWarnings({
     # Load required libraries
-    require(microeco); require(file2meco); require(mia)     # For ecological and microbial ecology data analysis
+    require(microeco); require(file2meco)# For ecological and microbial ecology data analysis
     # require(microViz)   # An extension of phyloseq for speedy data manipulation
     
     pathway %>% 
