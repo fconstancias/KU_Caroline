@@ -902,7 +902,8 @@ phyloseq_diff_abundance <- function(ps_tmp = ps_up %>%  subset_samples(Sample ==
 phyloseq_top_heatmap_barplot <- function(
     ps_up,
     group_var = "Sample_Time", 
-    tax_levels = c("Phylum", "Family", "Genus", "Species"), 
+    tax_levels = c("Phylum","Genus", "Species"), 
+    trans = "compositional",
     ntax = 5, 
     ntax_species = 14,
     plot_heights = c(1.4, 1.5, 4),
@@ -948,7 +949,8 @@ phyloseq_top_heatmap_barplot <- function(
  
         # Transform to relative abundance (percentage), filter to most abundant taxa
         out$heat[[tax]] <- ps_up %>%
-          transform_sample_counts(function(x) x / sum(x) * 100) %>% # conditional
+          microbiome::transform(transform = trans) %>% 
+          # transform_sample_counts(function(x) x / sum(x) * 100) %>% # conditional
           tax_glom(taxrank = tax) %>%
           filter_tax_table(get(tax) %in% out$most_ab_treat[[tax]]) %>%
           tax_mutate(Strain = NULL) %>%
@@ -969,12 +971,12 @@ phyloseq_top_heatmap_barplot <- function(
         # Apply color scaling and other theme adjustments to the heatmap plot
         out$heat[[tax]] <- out$heat[[tax]] +
           facet_grid(as.formula(facet_heat), scales = "free", space = "free") +
-          scale_fill_viridis_c(
-            breaks = c(0, 0.01, 1, 10, 50, 75, 100),
-            labels = c(0, 0.01, 1, 10, 50, 75, 100),
-            trans = scales::pseudo_log_trans(sigma = 0.001),
-            na.value = 'transparent'
-          ) +
+          # scale_fill_viridis_c(
+          #   breaks = c(0, 0.01, 1, 10, 50, 75, 100),
+          #   labels = c(0, 0.01, 1, 10, 50, 75, 100),
+          #   # trans = scales::pseudo_log_trans(sigma = 0.001),
+          #   na.value = 'transparent'
+          # ) +
           ylab(NULL) +
           theme(
             axis.title.x = element_blank(),
@@ -1024,7 +1026,8 @@ phyloseq_top_heatmap_barplot <- function(
       bar_plot <- ps_up %>%
         subset_taxa(Class != "UNCLASSIFIED") %>%
         tax_glom(barplot_level) %>%
-        transform_sample_counts(function(x) x / sum(x) * 100) %>% # conditional
+        microbiome::transform(transform = trans) %>% 
+        # transform_sample_counts(function(x) x / sum(x) * 100) %>% # conditional
         filter_tax_table(get(barplot_level) %in% out$most_ab_treat[[barplot_level]]) %>%
         microViz::comp_barplot(
           bar_width = 1,
