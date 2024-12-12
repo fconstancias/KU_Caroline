@@ -43,7 +43,7 @@ get_plotandlegend <- function(p){
   )
   
   # Return the modified plot and the extracted legend as a list
-  list(p = p, p_leg = p_leg)
+  list(p_leg = p_leg, p = p)
 }
 
 
