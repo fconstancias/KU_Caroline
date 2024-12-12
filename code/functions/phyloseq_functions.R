@@ -20,16 +20,30 @@
 #' result$p_leg # The legend as a separate ggplot object
 #' @export
 get_plotandlegend <- function(p){
-  # Extract the legend from the ggplot object and convert it to a ggplot object
-  p_leg <- p %>% 
-    ggpubr::get_legend() %>% 
-    ggpubr::as_ggplot()
+  # Suppress warnings and messages during legend extraction
+  suppressWarnings(
+    suppressMessages(
+      {
+        # Extract the legend from the ggplot object and convert it to a ggplot object
+        p_leg <- p %>% 
+          ggpubr::get_legend() %>% 
+          ggpubr::as_ggplot()
+      }
+    )
+  )
   
-  # Remove the legend from the original ggplot object
-  p <- p + theme(legend.position = "none")
+  # Suppress warnings and messages during plot modification
+  suppressWarnings(
+    suppressMessages(
+      {
+        # Remove the legend from the original ggplot object
+        p <- p + theme(legend.position = "none")
+      }
+    )
+  )
   
   # Return the modified plot and the extracted legend as a list
-  return(list(p = p, p_leg = p_leg))
+  list(p = p, p_leg = p_leg)
 }
 
 
