@@ -1,3 +1,38 @@
+#' Extract Plot and Legend as Separate ggplot Objects
+#'
+#' This function extracts the legend from a ggplot object and prepares it as a separate 
+#' ggplot object. It also modifies the original plot to remove its legend.
+#'
+#' @param p A ggplot object from which the legend will be extracted.
+#' @return A list with two elements:
+#'   \itemize{
+#'     \item `p`: The original ggplot object without a legend.
+#'     \item `p_leg`: The legend of the original plot as a separate ggplot object.
+#'   }
+#' @examples
+#' library(ggplot2)
+#' library(ggpubr)
+#' p <- ggplot(mtcars, aes(x = wt, y = mpg, color = factor(cyl))) +
+#'   geom_point() +
+#'   theme_minimal()
+#' result <- get_plotandlegend(p)
+#' result$p # The plot without a legend
+#' result$p_leg # The legend as a separate ggplot object
+#' @export
+get_plotandlegend <- function(p){
+  # Extract the legend from the ggplot object and convert it to a ggplot object
+  p_leg <- p %>% 
+    ggpubr::get_legend() %>% 
+    ggpubr::as_ggplot()
+  
+  # Remove the legend from the original ggplot object
+  p <- p + theme(legend.position = "none")
+  
+  # Return the modified plot and the extracted legend as a list
+  return(list(p = p, p_leg = p_leg))
+}
+
+
 #' Import and Process HUMAnN Pathway Data for Microbial Ecology Analysis
 #'
 #' This function imports HUMAnN pathway data, processes it into a `phyloseq` object, 
@@ -70,7 +105,7 @@ import_humann_pathway_mia <- function(pathway = NULL,
   
   suppressMessages(suppressWarnings({
     # Load required libraries
-    require(microeco); require(file2meco) # For ecological and microbial ecology data analysis
+    library(microeco); library(file2meco)# For ecological and microbial ecology data analysis
     # require(microViz)   # An extension of phyloseq for speedy data manipulation
     
     pathway %>% 
