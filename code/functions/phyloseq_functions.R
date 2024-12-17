@@ -960,6 +960,7 @@ phyloseq_top_heatmap_barplot <- function(
     facet_by = c("Sample_Type", "Time"),
     group_by = c("Sample_Type", "Time"),
     facet_heat = "~ Sample_Type + Time",
+    plot_value_heat = TRUE,
     facet_formula = "Sample_Type ~ Time",
     rm_unclassified = TRUE,
     barplot_level = "Species",
@@ -1003,7 +1004,7 @@ phyloseq_top_heatmap_barplot <- function(
           tax_glom(taxrank = tax) %>%
           filter_tax_table(get(tax) %in% out$most_ab_treat[[tax]]) %>%
           tax_mutate(Strain = NULL) %>%
-          phyloseq_ampvis_heatmap(
+          phyloseq_ampvis_heatmap(plot_values = plot_value_heat,
             tax_aggregate = tax,
             physeq = .,
             tax_add = NULL,
@@ -1080,7 +1081,11 @@ phyloseq_top_heatmap_barplot <- function(
         filter_tax_table(get(barplot_level) %in% out$most_ab_treat[[barplot_level]]) %>%
         microViz::comp_barplot(
           bar_width = 1,
-          n_taxa = length(out$most_ab_treat[[barplot_level]]),
+          n_taxa = ifelse(
+            length(out$most_ab_treat[[barplot_level]]) > 41 , 
+                   41, 
+                   length(out$most_ab_treat[[barplot_level]])
+                   ),
           tax_transform_for_plot = "identity",
           taxon_renamer = function(x) stringr::str_replace_all(x, "_", " "),
           label = plot_x,
