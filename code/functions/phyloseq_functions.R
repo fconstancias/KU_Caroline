@@ -996,7 +996,7 @@ phyloseq_top_heatmap_barplot <- function(
             ntax = ifelse(tax == "Species", ntax_species, ntax)
           )
         
- 
+        
         # Transform to relative abundance (percentage), filter to most abundant taxa
         out$heat[[tax]] <- ps_up %>%
           microbiome::transform(transform = trans) %>% 
@@ -1005,13 +1005,13 @@ phyloseq_top_heatmap_barplot <- function(
           filter_tax_table(get(tax) %in% out$most_ab_treat[[tax]]) %>%
           tax_mutate(Strain = NULL) %>%
           phyloseq_ampvis_heatmap(plot_values = plot_value_heat,
-            tax_aggregate = tax,
-            physeq = .,
-            tax_add = NULL,
-            transform = FALSE,
-            facet_by = facet_by,
-            group_by = group_by,
-            ntax = Inf
+                                  tax_aggregate = tax,
+                                  physeq = .,
+                                  tax_add = NULL,
+                                  transform = FALSE,
+                                  facet_by = facet_by,
+                                  group_by = group_by,
+                                  ntax = Inf
           )
         
         # Replace zero values in abundance data with NA
@@ -1083,9 +1083,9 @@ phyloseq_top_heatmap_barplot <- function(
           bar_width = 1,
           n_taxa = ifelse(
             length(out$most_ab_treat[[barplot_level]]) > 41 , 
-                   41, 
-                   length(out$most_ab_treat[[barplot_level]])
-                   ),
+            41, 
+            length(out$most_ab_treat[[barplot_level]])
+          ),
           tax_transform_for_plot = "identity",
           taxon_renamer = function(x) stringr::str_replace_all(x, "_", " "),
           label = plot_x,
@@ -1301,6 +1301,11 @@ compute_plot_beta <- function(ps_up = ps_up,
     
     out$plot_list$rAitchison$layers[[1]] = NULL;  out$plot_list$rAitchison$layers[[1]] = NULL
     out$plot_list$rAitchison$layers[[2]] = NULL;  out$plot_list$rAitchison$layers[[1]] = NULL
+    
+    
+    # out$plot_list$rAitchison %>% 
+    # gginnards::delete_layers(., "GeomPoint") %>% 
+    # gginnards::delete_layers(., "GeomPath") -> out$plot_list$rAitchison
     
     # plots_hall_humans$aichinson$layers[[1]] = NULL;plots_hall_humans$aichinson$layers[[1]] = NULL
     # plots_hall_humans$aichinson$layers[[2]] = NULL;plots_hall_humans$aichinson$layers[[2]] = NULL
@@ -1555,11 +1560,64 @@ compute_plot_beta <- function(ps_up = ps_up,
   }))
 }
 
+#' Explore Beta Diversity in Phyloseq Object
+#'
+#' This function computes and visualizes beta diversity for a given `phyloseq` object. 
+#' It computes ordination plots, runs PERMANOVA analysis, and generates distance boxplots. 
+#' The user can specify the beta diversity distance metric, ordination method, and other plot parameters. 
+#' Additionally, the function allows for visualizing taxonomic and metadata vectors in ordination plots.
+#'
+#' @param ps_up A `phyloseq` object, the input microbiome data.
+#' @param beta A list of beta diversity distances computed for the `phyloseq` object.
+#' @param m Ordination method. Default is "PCoA".
+#' @param distance_for_more The distance metric to be used for additional analysis (e.g., "rAitchison").
+#' @param color_group Grouping variable for color in plots. Default is "Time".
+#' @param shape_group Grouping variable for shape in plots. Default is "Sample".
+#' @param metadata_sel_envfit Metadata variables to use in ordination plot for environmental fit.
+#' @param adj_method Adjustment method for p-values. Default is "fdr".
+#' @param alpha Transparency level for plotting. Default is `NULL`.
+#' @param col_pal Color palette for plots. Default is `time_pal`.
+#' @param fill_pal Fill color palette for plots. Default is `time_pal`.
+#' @param path_group Grouping variable for paths in ordination plots. Default is "interaction(Sample,Subject)".
+#' @param facet_formula Formula for faceting the plots. Default is "Sample ~ .".
+#' @param axis1 Axis 1 for ordination plots. Default is 1.
+#' @param axis2 Axis 2 for ordination plots. Default is 2.
+#' @param seed Random seed for reproducibility. Default is 123.
+#' @param permanova_terms Terms to be used for PERMANOVA analysis. Default is c("Time", "cluster_Dtp2").
+#' @param metadata_dist_boxplot Metadata variables to use for distance boxplots. Default is `NULL`.
+#' @param strata Strata for PERMANOVA analysis. Default is "none".
+#' @param run_phyloseq_TW Boolean flag to run `phyloseq_TW` for TW significance testing. Default is `TRUE`.
+#' @param perm Number of permutations for statistical tests. Default is 999.
+#'
+#' @return A list containing various components:
+#'   - `plot_list`: List of ordination plots for different beta diversity metrics.
+#'   - `pcoas`: PCoA plots colored by groups.
+#'   - `expl_var`: Data frame with explained variance for ordinations.
+#'   - `PCOA`: PCoA plot with paths and customized facets.
+#'   - `perm`: Results of PERMANOVA analysis.
+#'   - `pw_perm`: Results of pairwise PERMANOVA analysis.
+#'   - `tw_perm`: Results of TW significance testing (if `run_phyloseq_TW` is TRUE).
+#'   - `dist_df`: Data frame with distance values for boxplots.
+#'   - `dist_box`: Boxplot of distances for different conditions.
+#'   - `dist_box_leg`: Legend for the distance boxplot.
+#'   - `env_fit_tax`: Taxonomic environmental fitting results.
+#'
+#' @examples
+#' result <- phyloseq_explore_beta(ps_up = ps_up, beta = beta, m = "PCoA")
+#' print(result$plot_list)
+#' print(result$dist_box)
+#'
+
 phyloseq_explore_beta <- function(ps_up = ps_up,
                                   beta = beta,
                                   m = "PCoA",
+                                  distance_for_more = "rAitchison",
                                   color_group = "Time",
                                   shape_group = "Sample",
+                                  metadata_sel_envfit = c("delta_mean_plaque", "delta_mean_bleeding"),
+                                  pval_cutoff = 0.05,
+                                  top_r_envfit = 15,
+                                  adj_method = "fdr",
                                   alpha = NULL,
                                   col_pal = time_pal,
                                   fill_pal = time_pal,
@@ -1575,7 +1633,7 @@ phyloseq_explore_beta <- function(ps_up = ps_up,
                                   perm = 999)
 {
   suppressMessages({
-    suppressWarnings({
+  suppressWarnings({
       
       ## Load necessary packages
       # require(tidyverse); require(phyloseq); require(vegan)
@@ -1606,24 +1664,67 @@ phyloseq_explore_beta <- function(ps_up = ps_up,
       
       # Extract explained variance from ordination plot
       out$plot_list %>%
-        phyloseq_ordinations_expl_var() -> out$expl_var
+        phyloseq_ordinations_expl_var() %>% 
+        mutate_if(is.numeric, ~round(., 3)) -> out$expl_var
       
-      #### 3. Detailed Ordination for Robust Aitchison Distance
-      out$plot_list$rAitchison + geom_point(size = 3, aes_string(colour = color_group, shape = shape_group, alpha = alpha)) +
+      #### 3. Detailed Ordination for distance_for_more selections
+      # out$plot_list[[distance_for_more]] %>%  #-> plot_tmp
+      
+      out$plot_list[[distance_for_more]] %>% 
+        gginnards::delete_layers(. , 
+                                 "GeomPoint") -> out$plot_list[[distance_for_more]] 
+      
+      out$plot_list[[distance_for_more]] + geom_point(size = 3, aes_string(colour = color_group, shape = shape_group, alpha = alpha)) +
         geom_path(data = out$plot_list$rAitchison$data %>% arrange(Subject), aes_string(group = path_group),
                   arrow = arrow(angle = 30, length = unit(0.15, "inches"), ends = "last", type = "open"), linetype = "longdash", size = 0.1) +
         theme_light() + scale_color_manual(name = "", values = col_pal, na.value = "black") +
         scale_fill_manual(name = "", values = fill_pal, na.value = "black") +
-        facet_grid(as.formula(facet_formula), scales = "free_y", space = "fixed", switch = "y") + theme_linedraw() + theme(strip.placement = "outside") -> out$PCOA
+        facet_grid(as.formula(facet_formula), scales = "fixed", space = "fixed", switch = "y") + theme_linedraw() + theme(strip.placement = "outside") + coord_fixed() -> out$PCOA
       
       # Extract and hide legend for the ordination plot
-      out$PCOA %>% ggpubr::get_legend() %>% ggpubr::as_ggplot() -> out$PCOA_leg
-      out$PCOA + theme(legend.position = "none") -> out$PCOA
       
-      #### 4. Environmental Fit (optional)
-      out$PCOA + scale_fill_manual(values = c("transparent")) +
-        scale_color_manual(values = rep("transparent", length(col_pal))) + theme(panel.border = element_blank(),
-                                                                                 panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) -> empty_plot_tmp
+      out$PCOA %>% 
+        get_plotandlegend() -> out$PCOA
+      
+      #### 4. Env Fit (optional)
+      phyloseq_add_taxa_vector_fix(dist = beta[[distance_for_more]],
+                                   phyloseq =  ps_up ,
+                                   figure_ord = out$PCOA$p + facet_null(),
+                                   m = "PCoA",
+                                   pval_cutoff = pval_cutoff,
+                                   top_r = top_r_envfit,
+                                   tax_rank_plot = "Genus",
+                                   vector_color = "green4",
+                                   taxnames_rm = c("unknown", "Unclassified"),
+                                   seed = seed,
+                                   perm = perm,
+                                   adj_method = adj_method,
+                                   transform = "compositional") -> env_fit_tax
+      
+      out$env_fit_tax <- env_fit_tax
+      
+      if(!is.null(metadata_sel_envfit)){
+        
+        phyloseq_add_metadata_vector_fix(dist = beta[[distance_for_more]],
+                                         phyloseq = ps_up ,
+                                         figure_ord = out$PCOA$p + facet_null(),
+                                         m = "PCoA",
+                                         pval_cutoff = pval_cutoff,
+                                         top_r = top_r_envfit,
+                                         metadata_sel = metadata_sel_envfit,
+                                         vector_color = "salmon3",
+                                         fact = 1,
+                                         seed = seed,
+                                         perm = perm,
+                                         adj_method = adj_method,
+                                         norm_method = "center_scale",
+                                         na_rm = TRUE) -> env_fit_meta
+        
+        out$env_fit_meta <- env_fit_meta
+        
+      }
+      
+      
       
       #### 5. PERMANOVA Analysis
       tmp_out1 = NULL; tmp_out2 = NULL
@@ -1641,11 +1742,23 @@ phyloseq_explore_beta <- function(ps_up = ps_up,
       
       #### 6. Pairwise PERMANOVA
       for (compare_header in permanova_terms) {
-        ps_up %>% lapply(beta, FUN = physeq_pairwise_permanovas_adonis2, physeq = ., compare_header = compare_header, n_perm = perm, strata = strata, terms_margins = "terms") %>%
-          bind_rows(.id = "Distance") %>% mutate("Group" = as.vector(compare_header)) %>% bind_rows(., out$pw_perm) -> out$pw_perm
-        if(run_phyloseq_TW){
-        lapply(beta, FUN = phyloseq_TW, physeq = ps_up, variable = compare_header, nrep = perm) %>%
-          bind_rows(.id = "Distance") %>% mutate("Group" = as.vector(compare_header)) %>% bind_rows(., out$tw_perm) -> out$tw_perm
+        # Extract the sample data
+        sample_data_df <- as.data.frame(sample_data(ps_up))
+        
+        # Check if compare_header is a factor or character in the sample data
+        if (is.factor(sample_data_df[[compare_header]]) || is.character(sample_data_df[[compare_header]])) {
+          ps_up %>% 
+            lapply(beta, FUN = physeq_pairwise_permanovas_adonis2, physeq = ., compare_header = compare_header, n_perm = perm, strata = strata, terms_margins = "terms") %>%
+            bind_rows(.id = "Distance") %>% 
+            mutate("Group" = as.vector(compare_header)) %>% 
+            bind_rows(., out$pw_perm) -> out$pw_perm
+          
+          if (run_phyloseq_TW) {
+            lapply(beta, FUN = phyloseq_TW, physeq = ps_up, variable = compare_header, nrep = perm) %>%
+              bind_rows(.id = "Distance") %>% 
+              mutate("Group" = as.vector(compare_header)) %>% 
+              bind_rows(., out$tw_perm) -> out$tw_perm
+          }
         }
       }
       
@@ -1729,11 +1842,12 @@ phyloseq_explore_beta <- function(ps_up = ps_up,
         out$dist_df <- dist_df
         out$dist_box <- dist_box
         out$dist_box_leg <- dist_box_leg
+
         
       }
       
       return(out)
-    })
+  })
   })
 }
 
