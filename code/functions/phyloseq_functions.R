@@ -1,3 +1,74 @@
+#' Convert SQM Table to Phyloseq Object
+#'
+#' This function reads files from a specified directory and constructs a Phyloseq object
+#' using metric and taxonomy information derived from SQM tables.
+#'
+#' @param dir Character string specifying the directory containing the SQM table files. Default: NULL.
+#' @param db Character string specifying the database prefix used in file naming (e.g., "COG"). Default: "COG".
+#' @param metric Character string specifying the metric type (e.g., "tpm"). Default: "tpm".
+#'
+#' @return A `phyloseq` object constructed from the specified SQM tables.
+#'
+#' @details
+#' The function searches the directory for two files:
+#' - A metric file matching the pattern `db.metric.tsv`.
+#' - A names file matching the pattern `db.names.tsv`.
+#'
+#' It reads the files, processes them into matrices, and constructs a `phyloseq` object.
+#'
+#' @examples
+#' # Example usage (ensure the directory and files exist):
+#' # ps <- SQM_table_2phyloseq(dir = "path/to/dir", db = "COG", metric = "tpm")
+#'
+#' @export
+SQM_table_2phyloseq <- function(dir =  "/Volumes/Elements/Caroline_KU/full_coassembly/SQM/full_coassembly_SQM_tables/tables", 
+                                db = "COG", metric = "tpm") {
+  
+  require(tidyverse); require(phyloseq)
+  
+  # List all files in the directory with full paths
+  file_list <- list.files(dir, full.names = TRUE)
+  
+  # Define the pattern for matching files: db.metric.tsv and db.names.tsv
+  pattern_metric <- paste0(db, "\\.", metric, "\\.tsv$")
+  pattern_names <- paste0(db, "\\.names\\.tsv$")
+  
+  # Filter the file list for matching patterns
+  file_metric <- file_list[grepl(pattern_metric, file_list)]
+  file_names <- file_list[grepl(pattern_names, file_list)]
+  
+  # Check if both files are found
+  if (length(file_metric) == 0) {
+    stop(paste("File not found for pattern:", pattern_metric))
+  }
+  if (length(file_names) == 0) {
+    stop(paste("File not found for pattern:", pattern_names))
+  }
+  
+  # Read the TSV files
+  data_metric <- read_tsv(file_metric)
+  data_names <- read_tsv(file_names)
+  
+  
+  
+  # Construct the phyloseq object
+  ps <- phyloseq::phyloseq(
+    data_metric %>% 
+      column_to_rownames(., var = names(data_metric)[1]) %>% 
+      as.matrix(rownames = TRUE) %>% 
+      otu_table(taxa_are_rows = TRUE),
+    data_names %>% 
+      column_to_rownames(., var = names(data_names)[1]) %>% 
+      as.matrix(rownames = TRUE) %>% 
+      tax_table()#,
+    # metadata %>%
+    # sample_data()
+  )
+  
+  # Return a list containing both data frames
+  return(ps)
+}
+
 #' Extract Plot and Legend as Separate ggplot Objects
 #'
 #' This function extracts the legend from a ggplot object and prepares it as a separate 
