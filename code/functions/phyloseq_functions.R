@@ -1,3 +1,49 @@
+#' Modify Heatmap Text Annotations
+#'
+#' A function to modify a heatmap by adding text annotations for abundance values 
+#' and adjusting the color scale with a pseudo-log transformation.
+#'
+#' @param heat A heatmap object (default: `out$heat$Genus`) assumed to be a ggplot object.
+#' @param size Numeric. Text size for annotations (default: 2).
+#' @param scale Numeric vector. Scale values for the color legend (default: `c(0, 0.01, 1, 10, 50, 75, 100)`).
+#'
+#' @return A ggplot object with updated text annotations and adjusted color scale.
+#'
+#' @examples
+#' # Assuming `out$heat$Genus` is a ggplot object with a valid `Abundance` column:
+#' modified_heatmap <- mod_text_heatmap(heat = out$heat$Genus, size = 3)
+#' print(modified_heatmap)
+#'
+mod_text_heatmap <- function(heat = out$heat$Genus,
+                             size = 2,
+                             scale = c(0, 0.01, 1, 10, 50, 75, 100)) {
+  require(tidyverse)  # Data manipulation and ggplot2
+  require(gginnards)  # Editing ggplot objects
+  require(ggpubr)
+  
+  # Remove existing text annotations
+  heat %>%
+    gginnards::delete_layers(., match_type = "GeomText") -> tmp
+  
+  # Add updated text annotations and adjust scale
+  tmp +
+    geom_text(data = tmp$data,
+              aes(label = ifelse(is.na(Abundance), "", round(Abundance * 100, 2))),
+              size = size, color = "black") +
+    scale_fill_viridis_c(
+      breaks = scale / 100,
+      labels = scale,
+      trans = scales::pseudo_log_trans(sigma = 0.001),
+      na.value = 'transparent'
+    ) +
+    ggpubr::rotate_x_text(45) +  # Rotate x-axis text for better readability
+    ylab(NULL) -> heat_up
+  
+  # Return the modified heatmap
+  return(heat_up)
+}
+
+
 #' Convert SQM Table to Phyloseq Object
 #'
 #' This function reads files from a specified directory and constructs a Phyloseq object
