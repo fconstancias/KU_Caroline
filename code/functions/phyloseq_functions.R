@@ -1,3 +1,153 @@
+#' Perform Random Forest Regression on Phyloseq Data
+#'
+#' This function fits a Random Forest model using caret to predict a given variable
+#' based on features from the phyloseq object. It allows inclusion of additional predictors,
+#' splits the data into training and testing sets, and generates various plots for model evaluation.
+#'
+#' @param ps_ready_caret A phyloseq object that contains the data to be used for model fitting.
+#' @param var A character string specifying the variable to predict. Default is "delta_mean_bleeding_tp2".
+#' @param additional_predictors A vector of additional predictors to be included in the model. Default includes "age", "MReadsR2", and "diversity_shannon".
+#' @param seed An integer seed for random number generation. Default is 42.
+#' @param train_test_ratio The ratio for splitting the data into training and testing sets. Default is 0.8 (80% training).
+#' @param trainControl_method A character string specifying the resampling method used in caret. Default is "repeatedcv".
+#' @param trainControl_num_tree The number of trees for the Random Forest model. Default is 500.
+#' @param trainControl_num_repeat The number of repetitions for resampling. Default is 5.
+#' @param train_method The method used for training the Random Forest model. Default is "ranger".
+#' @param train_importance The method for measuring variable importance. Default is "permutation".
+#' @param n_top_features The number of top features to plot based on importance. Default is 20.
+#'
+#' @return A list containing:
+#' \item{rfFit}{The fitted random forest model.}
+#' \item{fitControl}{The trainControl object used in caret.}
+#' \item{postResample}{The resampling results for model performance.}
+#' \item{pred_obs}{A ggplot object showing predicted vs. observed values.}
+#' \item{plot_varImp}{A ggplot object showing the variable importance plot.}
+#' \item{varImp}{A data frame with the variable importance values.}
+#' \item{plot_varImp2}{A ggplot object showing the top n variable importance plot.}
+#' \item{pd_plots}{A list of partial dependence plots for the top n features.}
+#'
+#' @import caret
+#' @import microeco
+#' @import patchwork
+#' @import pdp
+#'
+#' @examples
+#' \dontrun{
+#' result <- phyloseq_random_forest_regression(ps_ready_caret)
+#' }
+phyloseq_random_forest_regression <- function(ps_ready_caret,
+                                              var = "delta_mean_bleeding_tp2",
+                                              additional_predictors = c("age", "MReadsR2", "diversity_shannon"),
+                                              seed = 123123123,
+                                              train_test_ratio = .8,
+                                              trainControl_method = "repeatedcv",
+                                              trainControl_num_tree = 500,
+                                              trainControl_num_repeat = 5,
+                                              train_method = "ranger",
+                                              train_importance = "permutation",
+                                              n_top_features = 20)
+  
+{
+  require(caret); require(microeco); library(patchwork); library(pdp)
+  
+  out = NULL
+  
+  # https://chiliubio.github.io/microeco_tutorial/basic-class.html#microtable-class
+  # ps_ready_caret %>%
+  #     file2meco::phyloseq2meco(.) -> data
+  # 
+  # data$cal_abund()
+  # data$taxa_abund
+  
+  # Get index for sampling
+  set.seed(seed)
+  
+  data_ml <- data.frame(variable = phyloseq::get_variable(ps_ready_caret, var),
+                        otu_table(ps_ready_caret) %>% t())
+  
+  # If additional predictors are specified, merge them into the dataset
+  if (!isFALSE(additional_predictors))
+  {
+    data_ml %>% 
+      rownames_to_column('sample_tmp') %>%  
+      left_join(.,
+                sample_data(ps_ready_caret) %>% 
+                  data.frame() %>% 
+                  rownames_to_column('sample_tmp') %>% 
+                  select(any_of(c("sample_tmp", additional_predictors)))
+      ) %>%  column_to_rownames("sample_tmp") -> data_ml
+  }
+  
+  # Split data into training and testing sets
+  trainIndex <- createDataPartition(data_ml$variable, p = train_test_ratio, list = FALSE, times = 1)
+  
+  # Split data into training and testing sets
+  training <- data_ml[trainIndex,]
+  testing <- data_ml[-trainIndex,]
+  
+  # Train the Random Forest model
+  set.seed(seed)
+  fitControl <- trainControl(method = trainControl_method, 
+                             number = trainControl_num_tree, 
+                             repeats = trainControl_num_repeat)
+  
+  rfFit1 <- train(variable ~ ., data = training, 
+                  method = train_method, 
+                  trControl = fitControl,
+                  importance = train_importance)
+  
+  out$rfFit <- rfFit1
+  out$fitControl <- fitControl
+  
+  # Make predictions on the testing set
+  test_predictions <- predict(rfFit1, newdata = testing)
+  out$postResample <- postResample(test_predictions, testing$variable)
+  
+  # Plot predicted vs observed
+  pred_obs <- data.frame(predicted = test_predictions, observed = testing$variable)
+  ggplot(data = pred_obs, aes(x=predicted, y=observed)) + geom_point(size = 5, color = "orange") + 
+    xlab(paste0("Predicted ", var)) + ylab(paste0("Observed ", var))  +
+    # lims(x = c(0,5), y = c(0,5)) +
+    geom_abline(linetype = 5, color = "blue", size = 1)+ # Plot a perfect fit line
+    theme(panel.border = element_rect(colour = "black", fill = NA),
+          panel.background = element_blank()) -> out$pred_obs
+  
+  # Variable importance plot
+  out$plot_varImp <- plot(varImp(rfFit1))
+  
+  # Get variable importance values and plot top features
+  varImp(rfFit1)$importance %>% 
+    rownames_to_column("feature") %>% 
+    arrange(-Overall) -> out$varImp
+  
+  out$varImp %>% 
+    arrange(-Overall) %>% 
+    mutate(feature = fct_reorder(feature, Overall)) %>%
+    slice_head(n = n_top_features) %>% 
+    ggplot( aes(x=feature, y=Overall)) +
+    geom_segment( aes(xend=feature, yend=0)) +
+    geom_point( size=4, color="orange3") +
+    coord_flip() +
+    theme_bw() +
+    xlab("")  -> out$plot_varImp2
+  
+  # Generate partial dependence plots for top features
+  top_features <- rownames(varImp(rfFit1)$importance)[order(varImp(rfFit1)$importance[,"Overall"], decreasing = TRUE)[1:n_top_features]]
+  pd_plots <- list(NULL)
+  for (feature in top_features) {
+    out$pd_plots[[feature]] <- partial(rfFit1, pred.var = feature, rug = TRUE) %>% autoplot() + 
+      geom_hline(yintercept = mean(training$variable), linetype = 2, color = "gray") + # Show the mean of the training data as a dashed line
+      # scale_y_continuous(limits=c(10,25)) + # Harmonize the scale of yhat on all plots
+      theme(panel.border = element_rect(colour = "black", fill = NA),
+            panel.background = element_blank())
+    print(paste0("Partial dependence of ", feature))
+  }
+  
+  return(out)
+}
+
+
+
 #' Modify Heatmap Text Annotations
 #'
 #' A function to modify a heatmap by adding text annotations for abundance values 
@@ -1793,7 +1943,7 @@ phyloseq_explore_beta <- function(ps_up = ps_up,
                                  "GeomPoint") -> out$plot_list[[distance_for_more]] 
       
       out$plot_list[[distance_for_more]] + geom_point(size = 3, aes_string(colour = color_group, shape = shape_group, alpha = alpha)) +
-        geom_path(data = out$plot_list$rAitchison$data %>% arrange(Subject), aes_string(group = path_group),
+        geom_path(data = out$plot_list[[distance_for_more]]$data %>% arrange(Subject), aes_string(group = path_group),
                   arrow = arrow(angle = 30, length = unit(0.15, "inches"), ends = "last", type = "open"), linetype = "longdash", size = 0.1) +
         theme_light() + scale_color_manual(name = "", values = col_pal, na.value = "black") +
         scale_fill_manual(name = "", values = fill_pal, na.value = "black") +
