@@ -1,0 +1,556 @@
+---
+title: " Study II - Beta-diversity analyses of metaphlan profiles"
+author: "Florentin Constancias"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  html_document: 
+    toc: yes
+    keep_md: no
+---
+
+```{r setup, include=FALSE}
+rm(list = ls())
+gc()
+
+# invisible(lapply(paste0('package:', names(sessionInfo()$otherPkgs)), detach, character.only=TRUE, unload=TRUE))
+
+# options(java.parameters = "-Xmx80000m")
+```
+
+
+```{r setup2, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+##knitr::opts_chunk$set(cache=TRUE)
+# knitr::opts_chunk$set(echo = TRUE)
+# knitr::opts_chunk$set(dev = "ragg_png") # https://ragg.r-lib.org/index.html
+##knitr::opts_chunk$set(fig.width = 6) #https://r4ds.had.co.nz/graphics-for-communication.html#figure-sizing
+knitr::opts_chunk$set(fig.asp = 0.618)
+knitr::opts_chunk$set(fig.show = "hold")
+knitr::opts_chunk$set(fig.show = "70%")
+knitr::opts_chunk$set(fig.align = "center")
+```
+
+```{r setup3, include=FALSE}
+library(tidyverse)
+library(readxl)
+library(readr)
+library(speedyseq)
+library(microViz)
+```
+
+```{r setup4, include=FALSE}
+
+'%!in%' <- function(x,y)!('%in%'(x,y))
+
+source("https://raw.githubusercontent.com/fconstancias/DivComAnalyses/refs/heads/master/R/phyloseq_alpha.R")
+```
+
+
+```{r}
+load(here::here("../../data/processed_data/metaphlan/01_data.Rdata"))
+# load(here::here("../../data/processed_data/metaphlan/02_data.Rdata"))
+```
+
+```{r}
+
+ps_up %>% 
+  ps_mutate(
+    ., 
+    mean_bleeding_tp2 = map_dbl(
+      Subject, 
+      ~ mean(mean_bleeding[Time == "TP2" & Subject == .x], na.rm = TRUE)
+    ),
+    delta_mean_bleeding_tp2 = map_dbl(
+      Subject, 
+      ~ mean(delta_mean_bleeding[Time == "TP2" & Subject == .x], na.rm = TRUE)
+    ),
+    delta_mean_plaque_tp2 = map_dbl(
+      Subject, 
+      ~ mean(delta_mean_plaque[Time == "TP2" & Subject == .x], na.rm = TRUE)
+    ),
+    mean_plaque_tp2 = map_dbl(
+      Subject, 
+      ~ mean(mean_plaque[Time == "TP2" & Subject == .x], na.rm = TRUE)
+    ),
+  ) -> ps_ready 
+```
+
+Add alpha diversity measures to the sample data - so we can add those in the randomforest:
+
+```{r, eval=TRUE}
+ps_ready %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED") %>% 
+  microbiome::transform(transform = "compositional") %>% 
+  phyloseq_alphas(.) -> alpha
+```
+
+```{r, eval=TRUE}
+alpha %>% 
+  column_to_rownames("sample_id_tmp") -> sample_data(ps_ready) 
+```
+
+```{r}
+source("https://raw.githubusercontent.com/fconstancias/DivComAnalyses/refs/heads/master/R/phyloseq_microeco.R")
+```
+
+# Microeco:
+
+## logistic regression:
+
+```{r}
+require(microeco)
+
+ps_ready %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED") %>% 
+  phyloseq::subset_samples(Time == "TP1" &
+                             Sample == "Plaque")  %>% 
+  microbiome::transform(transform = "compositional") %>% 
+  phyloseq_classifier(method = "logistic_regression", seed = 12345, prop_train = 0.80,
+                      y_response = "delta_mean_bleeding_tp2", x_predictors = "All") -> logistic_regression
+```
+
+```{r}
+logistic_regression$res_train
+```
+
+```{r}
+logistic_regression$plot_feature_imp1
+```
+
+```{r}
+logistic_regression$plot_feature_imp2
+```
+
+```{r}
+logistic_regression$plot_feature_imp3
+```
+```{r}
+logistic_regression$plot_feature_imp4
+```
+
+```{r}
+logistic_regression$pred_obs
+```
+
+
+Run again with another seed value
+
+```{r}
+ps_ready %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED_UNCLASSIFIED") %>% 
+  phyloseq::subset_samples(Time == "TP1" &
+                             Sample == "Plaque")  %>% 
+  microbiome::transform(transform = "compositional") %>% 
+  phyloseq_classifier(method = "logistic_regression", seed = 3456,
+                      y_response = "delta_mean_bleeding_tp2", x_predictors = "All") -> logistic_regression2
+
+logistic_regression2$pred_obs
+```
+Add some other variables:
+
+```{r}
+ps_ready %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED") %>% 
+  phyloseq::subset_samples(Time == "TP1" &
+                             Sample == "Plaque")  %>% 
+  microbiome::transform(transform = "compositional") %>% 
+  phyloseq_classifier(method = "logistic_regression", seed = 3456,
+                      y_response = "delta_mean_bleeding_tp2", x_predictors = "All",
+                      additional_predictors = c("InvSimpson", "Shannon", "Simpson", "Sex", "age")) -> logistic_regression3
+
+logistic_regression3$pred_obs
+```
+```{r}
+logistic_regression3$plot_feature_imp2
+```
+
+
+```{r}
+logistic_regression3$plot_feature_imp4
+```
+Same as previous but without boruta slection:
+
+```{r}
+ps_ready %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED") %>% 
+  phyloseq::subset_samples(Time == "TP1" &
+                             Sample == "Plaque")  %>% 
+  microbiome::transform(transform = "compositional") %>% 
+  phyloseq_classifier(method = "logistic_regression", seed = 3456,boruta_pValue = NULL,
+                      y_response = "delta_mean_bleeding_tp2", x_predictors = "All",
+                      additional_predictors = c("InvSimpson", "Shannon", "Simpson", "Sex", "age")) -> logistic_regression3
+
+logistic_regression3$pred_obs
+```
+
+```{r}
+logistic_regression3$plot_feature_imp2
+logistic_regression3$plot_feature_imp4
+```
+
+
+Trying another transformation:
+
+```{r}
+ps_ready %>% 
+  phyloseq::subset_samples(Time == "TP1" &
+                             Sample == "Plaque")  %>% 
+  microbiome::transform(transform = "rclr") %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED_UNCLASSIFIED") %>% 
+  phyloseq_classifier(method = "logistic_regression", seed = 3456,
+                      y_response = "delta_mean_bleeding_tp2", x_predictors = "All") -> logistic_regression4
+
+logistic_regression4$pred_obs
+```
+compute CLR including unclissifed :
+
+
+```{r}
+ps_ready %>% 
+  phyloseq::subset_samples(Time == "TP1" &
+                             Sample == "Plaque")  %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED") %>% 
+  microbiome::transform(transform = "rclr") %>% 
+  phyloseq_classifier(method = "logistic_regression", seed = 3456,
+                      y_response = "delta_mean_bleeding_tp2", x_predictors = "All") -> logistic_regression5
+
+logistic_regression5$pred_obs
+```
+
+```{r}
+logistic_regression5$res_train
+```
+```{r}
+logistic_regression5$plot_feature_imp4
+```
+```{r}
+logistic_regression5$plot_feature_imp2
+```
+
+# Random forest:
+
+## TP1 Plaque
+
+```{r}
+ps_up %>% 
+  phyloseq::subset_samples(Time == "TP1" & 
+                             Sample == "Plaque" & 
+                             Inflamation_response %in% c("High","Low")) %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED") %>% 
+  microbiome::transform(transform = "compositional") %>% 
+  phyloseq_classifier(y_response = "Inflamation_response", 
+                      x_predictors = "Phylum",  
+                      additional_predictors = c("InvSimpson", "Shannon", "Simpson", "Sex", "age"),
+                      boruta_pValue = 0.001,
+                      seed = 456) -> tp1_plaque
+```
+
+```{r}
+tp1_plaque$res_train
+```
+
+
+```{r}
+tp1_plaque$res_train$trainingData
+```
+
+
+```{r}
+tp1_plaque$plotROCpred
+```
+
+```{r}
+tp1_plaque$plotPRpred
+```
+
+```{r}
+tp1_plaque$plot_feature_imp1
+```
+
+```{r}
+tp1_plaque$plot_feature_imp2
+```
+
+```{r}
+tp1_plaque$plot_feature_imp3
+```
+
+```{r}
+tp1_plaque$plot_feature_imp4
+```
+
+```{r}
+tp1_plaque$res_feature_imp %>% 
+  rownames_to_column("feature")
+```
+
+## TP1 Saliva
+
+```{r}
+ps_up %>% 
+  phyloseq::subset_samples(Time == "TP1" & 
+                             Sample == "Saliva" & 
+                             Inflamation_response %in% c("High", "Low")) %>%
+  microViz::ps_mutate(Inflamation_response = as.factor(Inflamation_response)) %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED_UNCLASSIFIED") %>% 
+  microbiome::transform(transform = "compositional") %>% 
+  phyloseq_classifier(y_response = "Inflamation_response", x_predictors = "All",                       boruta_pValue = 0.01,
+                      seed = 456) -> tp1_saliva
+
+
+tp1_saliva$plotROCpred
+```
+
+```{r}
+tp1_saliva$plotPRpred
+```
+
+```{r}
+tp1_saliva$plot_feature_imp1
+```
+
+```{r}
+tp1_saliva$plot_feature_imp2
+```
+
+```{r}
+tp1_saliva$plot_feature_imp3
+```
+
+```{r}
+tp1_saliva$plot_feature_imp4
+```
+
+```{r}
+tp1_saliva$res_feature_imp %>% 
+  rownames_to_column("feature")
+```
+
+
+# Caret
+
+A function in the caret package is used to divide the data once to 80% train and 20% test (validation) sets. This is to prevent data leakage and overestimation of model performance. The 20% test set is only used to conduct the final validation of the models. The number of samples in this case is low (n = 40), but as we can see later on, even 8 samples is sufficient for estimation of the performance. Note that the data is stratified to include a representative distribution of butyrate concentrations on both sides of the split. There is some randomness inherent in the splitting, so set.seed() needs to be used.
+
+```{r}
+# butyrate_df <- data.frame(cbind(y, x))
+# butyrate_df <- butyrate_df[,which(colnames(butyrate_df) %in% c("Butyrate", colnames(x)))]
+
+ps_ready %>% 
+  file2meco::phyloseq2meco(.) -> ps_micr
+
+t1$
+  ```
+
+## cratet:
+
+https://microbiome.netlify.app/classification-using-microbiome
+
+```{r}
+ps_ready %>% 
+  phyloseq::subset_samples(Time == "TP1" & 
+                             Sample == "Saliva" & 
+                             Inflamation_response %in% c("High", "Low")) %>%
+  microViz::ps_mutate(Inflamation_response = as.factor(Inflamation_response)) %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED") %>% 
+  transform_sample_counts(., function(x) log(1 + x)) -> ps_ready_log
+
+```
+
+```{r}
+data_ml <- data.frame(Inflamation_response = sample_data(ps_ready_log)$Inflamation_response, otu_table(ps_ready_log) %>%  t())
+
+# get index for sampling
+set.seed(100)
+idx_train <- sample(nrow(sample_data(ps_ready_log)), size = nrow(sample_data(ps_ready_log))*0.8)
+
+# splitting train-test
+training <- data_ml[idx_train,]
+testing <- data_ml[-idx_train,]
+```
+
+Once we split the data, we can use the train function to fit the Random Forest model.
+
+
+```{r}
+require(caret)
+rfFit <- train(Inflamation_response ~ ., 
+               data = training,
+               method = "rf")
+
+rfFit
+```
+
+
+Next we can predict mouse age labels on the test set using predict() function.
+```{r}
+
+rfClasses <- predict(rfFit, 
+                     newdata = testing)
+```
+
+
+Then we can do a quick model evaluation by using simple confusion matrix.
+
+
+```{r}
+# other options use: `confusionMatrix()`
+table(pred = rfClasses, 
+      actual = testing$Inflamation_response)
+```
+```{r}
+randomForest::importance(rfFit$finalModel) %>% 
+  data.frame() %>% 
+  arrange(-MeanDecreaseGini) %>% 
+  head()
+```
+
+
+```{r}
+# # get microbial abundance
+# imp_abd <- as.vector(otu_table(ps_cut_log)[,"ASV27"])
+# # combine with sample data
+# imp_df <- data.frame(sample_data(ps_cut_log),
+#                      abund = imp_abd)
+# 
+# # plotting
+# imp_plot<- ggplot(imp_df, aes(x = abund)) + 
+#   geom_density(aes(fill = When),
+#               alpha = 0.5) +
+#   labs(title = "Abundance of Discriminative Species",
+#      subtitle = "Oscillibacter sp.",
+#      x = "Abundance",
+#      y = "Density of samples",
+#      fill = "Age") +
+#   # below is for aesthetics
+#   theme_minimal()
+
+```
+
+https://microbiome.github.io/course_2022_FindingPheno/supervised-learning.html
+
+We can see that some genera are highly important for model predictions. The importance values can be highly useful, and these are often used e.g., for feature selection before conducting statistical (or other ML) tests. However, if we only conducted this supervised machine learning analysis, we would not know which features are positively and which ones negatively associated with butyrate levels.
+
+All black box models can however be examined through partial dependence plots. Similarly to validation, we can again utilize the fact that ML models are great at making new predictions. While the inner workings of the model are highly complex, we can assume that changing the values of an important feature affects the model prediction in a specific way. Briefly, partial dependence plots visualize the expected output of the model over the range of an individual input feature (up to 3 features). The pdp package is a versatile implementation for conducting these analyses in R and works directly on models fitted with caret::train().
+
+```{r}
+ps_ready_caret %>% 
+  phyloseq_random_forest_regression(.,
+                                    var = "delta_mean_bleeding_tp2",
+                                    additional_predictors = c("age", "MReadsR2", "diversity_shannon")) -> result
+
+result
+```
+
+```{r}
+ps_ready %>% 
+  phyloseq::subset_samples(Time == "TP1" & 
+                             Sample == "Plaque" & 
+                             Inflamation_response %in% c("High", "Low")) %>%
+  microViz::ps_mutate(Inflamation_response = as.factor(Inflamation_response)) %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED") %>% 
+  microbiome::transform("compositional") -> ps_ready_caret
+
+```
+
+
+```{r}
+
+```
+
+```{r}
+data_ml <- data.frame(delta_mean_bleeding_tp2 = sample_data(ps_ready_caret)$delta_mean_bleeding_tp2, otu_table(ps_ready_caret) %>%  t())
+
+# get index for sampling
+set.seed(42)
+trainIndex <- createDataPartition(data_ml$delta_mean_bleeding_tp2, p = .8, list = FALSE, times = 1)
+
+
+# splitting train-test
+training <- data_ml[trainIndex,]
+testing <- data_ml[-trainIndex,]
+
+```
+
+
+```{r}
+set.seed(42)
+fitControl <- trainControl(method = "repeatedcv", number = 500, repeats = 5)
+rfFit1 <- train(delta_mean_bleeding_tp2 ~ ., data = training, 
+                method = "ranger", 
+                trControl = fitControl,
+                importance = "permutation")
+
+print(rfFit1)
+```
+```{r}
+print(rfFit1$finalModel)
+```
+
+```{r}
+test_predictions <- predict(rfFit1, newdata = testing)
+print(postResample(test_predictions, testing$delta_mean_bleeding_tp2))
+```
+
+```{r}
+# Plot predicted vs observed
+pred_obs <- data.frame(predicted = test_predictions, observed = testing$delta_mean_bleeding_tp2)
+ggplot(data = pred_obs, aes(x=predicted, y=observed)) + geom_point(size = 5, color = "orange") + 
+  xlab("Predicted delta_mean_bleeding_tp2") + ylab("Observed delta_mean_bleeding_tp2") +
+  # lims(x = c(0,5), y = c(0,5)) +
+  geom_abline(linetype = 5, color = "blue", size = 1)+ # Plot a perfect fit line
+  theme(panel.border = element_rect(colour = "black", fill = NA),
+        panel.background = element_blank())
+```
+
+```{r}
+plot(varImp(rfFit1))
+```
+```{r}
+library(patchwork)
+library(pdp)
+top_features <- rownames(varImp(rfFit1)$importance)[order(varImp(rfFit1)$importance[,"Overall"], decreasing = TRUE)[1:6]]
+pd_plots <- list(NULL)
+for (feature in 1:length(top_features)) {
+  pd_plots[[feature]] <- partial(rfFit1, pred.var = top_features[feature], rug = TRUE) %>% autoplot() + 
+    geom_hline(yintercept = mean(training$delta_mean_bleeding_tp2), linetype = 2, color = "gray") + # Show the mean of the training data as a dashed line
+    # scale_y_continuous(limits=c(10,25)) + # Harmonize the scale of yhat on all plots
+    theme(panel.border = element_rect(colour = "black", fill = NA),
+          panel.background = element_blank())
+  print(paste0("Partial dependence of ", top_features[feature]))
+}
+
+pd_plots
+```
+```{r}
+pd_plots
+```
+
+
+## mia:
+
+https://microbiome.github.io/OMA/docs/devel/pages/machine_learning.html#supervised-machine-learning
+
+```{r}
+
+# butyrate_df <- data.frame(cbind(y, x))
+# butyrate_df <- butyrate_df[,which(colnames(butyrate_df) %in% c("Butyrate", colnames(x)))]
+
+```
+
+```{r}
+ps_ready %>% 
+  psmelt() 
+  # save(Time_out_plaque_clust, Time_out_saliva_clust, Time_out_clust, Time_out, plaque, saliva, d_box, d_box_leg, 
+  #      ps_up,
+  #      sample_pal,
+  #      time_pal, sub_pal, sex_pal, sample_pal, period_pal,
+  #      file = here::here("../../data/processed_data/metaphlan/03_data.Rdata"))
+```
+
+# https://microbiome.github.io/OMA/docs/devel/pages/integrated_learner.html
+and https://microbiome.github.io/OMA/docs/devel/pages/integrated_learner.html and important one: https://cran.r-project.org/web/packages/ggRandomForests/vignettes/ggrfRegression.html and https://stats.stackexchange.com/questions/41443/how-to-actually-plot-a-sample-tree-from-randomforestgettree
+
+```{r}
+sessionInfo()
+```

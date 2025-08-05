@@ -64,6 +64,7 @@ Source the function `phyloseq_top_heatmap_barplot`:
 
 ```{r}
 source("https://raw.githubusercontent.com/fconstancias/KU_Caroline/refs/heads/main/code/functions/phyloseq_functions.R")
+
 ```
 
 below the Arguments of the function phyloseq_top_heatmap_barplot() + default values:
@@ -175,11 +176,32 @@ Function `phyloseq_diff_abundance()` allows to run different methods, here are t
 
 ## Test differences at Baseline between Saliva and Plaque microbiome:
 
+
+```{r, message=TRUE}
+ps_up %>% 
+  subset_samples(Time == "TP2" & Sample == "Plaque" & Inflamation_response %in% c("Low", "High") ) %>% 
+  phyloseq_diff_abundance(ps_tmp = .,
+                          approach = c( "maaslin3"),
+                          glom = "Species",
+                          # maaslin3_fixed_effects = ,
+                          # maaslin3_strata_effects = ,
+                          # masslin3_output_dir = ,
+                          taxa_rank = "all", #"OTU"
+                          comp_group = "Inflamation_response",
+                          formula =  "~ Inflamation_response",
+                          palette = sample_pal,
+                          unclassified_name = "UNCLASSIFIED") -> TP1
+
+TP1$maaslin3$merged_res %>% 
+  arrange(pval_individual)
+```
+
+
 ```{r, message=TRUE}
 ps_up %>% 
   subset_samples(Time == "TP1") %>% 
   phyloseq_diff_abundance(ps_tmp = .,
-                          approach = c("run_lefse", "run_ancom", "trans_diff_rf", "maaslin3", "ancombc2", "linda"),
+                          approach = c( "maaslin3","run_lefse", "run_ancom", "trans_diff_rf", "ancombc2", "linda"),
                           glom = "Species",
                           taxa_rank = "all", #"OTU"
                           comp_group = "Sample",
@@ -191,6 +213,10 @@ ps_up %>%
                           linda_comp_group = "Sample",,
                           palette = sample_pal,
                           unclassified_name = "UNCLASSIFIED") -> TP1
+
+
+TP1$maaslin3$merged_res %>% 
+  arrange(pval_individual)
 ```
 
 

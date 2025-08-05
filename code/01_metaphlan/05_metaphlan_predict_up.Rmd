@@ -1,0 +1,316 @@
+---
+title: " Study II - Beta-diversity analyses of metaphlan profiles"
+author: "Florentin Constancias"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  html_document: 
+    toc: yes
+    keep_md: no
+---
+
+```{r setup, include=FALSE}
+rm(list = ls())
+gc()
+
+# invisible(lapply(paste0('package:', names(sessionInfo()$otherPkgs)), detach, character.only=TRUE, unload=TRUE))
+
+# options(java.parameters = "-Xmx80000m")
+```
+
+
+```{r setup2, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+##knitr::opts_chunk$set(cache=TRUE)
+# knitr::opts_chunk$set(echo = TRUE)
+# knitr::opts_chunk$set(dev = "ragg_png") # https://ragg.r-lib.org/index.html
+##knitr::opts_chunk$set(fig.width = 6) #https://r4ds.had.co.nz/graphics-for-communication.html#figure-sizing
+knitr::opts_chunk$set(fig.asp = 0.618)
+knitr::opts_chunk$set(fig.show = "hold")
+knitr::opts_chunk$set(fig.show = "70%")
+knitr::opts_chunk$set(fig.align = "center")
+```
+
+```{r setup3, include=FALSE}
+library(tidyverse)
+library(readxl)
+library(readr)
+library(speedyseq)
+library(microViz)
+```
+
+```{r setup4, include=FALSE}
+
+'%!in%' <- function(x,y)!('%in%'(x,y))
+
+source("https://raw.githubusercontent.com/fconstancias/DivComAnalyses/refs/heads/master/R/phyloseq_alpha.R")
+```
+
+
+```{r}
+load(here::here("../../data/processed_data/metaphlan/01_data.Rdata"))
+# load(here::here("../../data/processed_data/metaphlan/02_data.Rdata"))
+```
+
+```{r}
+
+ps_up %>% 
+  ps_mutate(
+    ., 
+    mean_bleeding_tp2 = map_dbl(
+      Subject, 
+      ~ mean(mean_bleeding[Time == "TP2" & Subject == .x], na.rm = TRUE)
+    ),
+    delta_mean_bleeding_tp2 = map_dbl(
+      Subject, 
+      ~ mean(delta_mean_bleeding[Time == "TP2" & Subject == .x], na.rm = TRUE)
+    ),
+    delta_mean_plaque_tp2 = map_dbl(
+      Subject, 
+      ~ mean(delta_mean_plaque[Time == "TP2" & Subject == .x], na.rm = TRUE)
+    ),
+    mean_plaque_tp2 = map_dbl(
+      Subject, 
+      ~ mean(mean_plaque[Time == "TP2" & Subject == .x], na.rm = TRUE)
+    ),
+  ) -> ps_ready 
+```
+
+Add alpha diversity measures to the sample data - so we can add those in the randomforest:
+
+```{r, eval=TRUE}
+ps_ready %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED") %>% 
+  microbiome::transform(transform = "compositional") %>% 
+  phyloseq_alphas(.) -> alpha
+```
+
+```{r, eval=TRUE}
+alpha %>% 
+  column_to_rownames("sample_id_tmp") -> sample_data(ps_ready) 
+```
+
+```{r}
+source("https://raw.githubusercontent.com/fconstancias/DivComAnalyses/refs/heads/master/R/phyloseq_microeco.R")
+```
+
+# Microeco:
+
+## logistic regression:
+
+```{r}
+require(microeco)
+
+ps_ready %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED") %>% 
+  phyloseq::subset_samples(Time == "TP1" &
+                             Sample == "Plaque")  %>% 
+  microbiome::transform(transform = "compositional") %>% 
+  phyloseq_classifier(method = "logistic_regression", seed = 12345, prop_train = 0.80,
+                      y_response = "delta_mean_bleeding_tp2", x_predictors = "All") -> logistic_regression
+```
+
+```{r}
+logistic_regression$res_train
+```
+
+
+```{r}
+logistic_regression$plot_feature_imp2
+```
+
+```{r}
+logistic_regression$plot_feature_imp4
+```
+
+```{r}
+logistic_regression$pred_obs
+```
+
+
+Run again with another seed value
+
+```{r}
+ps_ready %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED_UNCLASSIFIED") %>% 
+  phyloseq::subset_samples(Time == "TP1" &
+                             Sample == "Plaque")  %>% 
+  microbiome::transform(transform = "compositional") %>% 
+  phyloseq_classifier(method = "logistic_regression", seed = 3456,
+                      y_response = "delta_mean_bleeding_tp2", x_predictors = "All") -> logistic_regression2
+
+logistic_regression2$pred_obs
+```
+Add some other variables:
+
+```{r}
+ps_ready %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED") %>% 
+  phyloseq::subset_samples(Time == "TP1" &
+                             Sample == "Plaque")  %>% 
+  microbiome::transform(transform = "compositional") %>% 
+  phyloseq_classifier(method = "logistic_regression", seed = 3456,
+                      y_response = "delta_mean_bleeding_tp2", x_predictors = "All",
+                      additional_predictors = c("InvSimpson", "Shannon", "Simpson", "Sex", "age")) -> logistic_regression3
+
+logistic_regression3$pred_obs
+```
+```{r}
+logistic_regression3$plot_feature_imp2
+```
+
+
+```{r}
+logistic_regression3$plot_feature_imp4
+```
+Same as previous but without boruta slection:
+
+```{r}
+ps_ready %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED") %>% 
+  phyloseq::subset_samples(Time == "TP1" &
+                             Sample == "Plaque")  %>% 
+  microbiome::transform(transform = "compositional") %>% 
+  phyloseq_classifier(method = "logistic_regression", seed = 3456,boruta_pValue = NULL,
+                      y_response = "delta_mean_bleeding_tp2", x_predictors = "All",
+                      additional_predictors = c("InvSimpson", "Shannon", "Simpson", "Sex", "age")) -> logistic_regression3
+
+logistic_regression3$pred_obs
+```
+
+```{r}
+logistic_regression3$plot_feature_imp2
+logistic_regression3$plot_feature_imp4
+```
+
+
+Trying another transformation:
+
+```{r}
+ps_ready %>% 
+  phyloseq::subset_samples(Time == "TP1" &
+                             Sample == "Plaque")  %>% 
+  microbiome::transform(transform = "rclr") %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED_UNCLASSIFIED") %>% 
+  phyloseq_classifier(method = "logistic_regression", seed = 3456,
+                      y_response = "delta_mean_bleeding_tp2", x_predictors = "All") -> logistic_regression4
+
+logistic_regression4$pred_obs
+```
+compute CLR including unclissifed :
+
+
+```{r}
+ps_ready %>% 
+  phyloseq::subset_samples(Time == "TP1" &
+                             Sample == "Plaque")  %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED") %>% 
+  microbiome::transform(transform = "rclr") %>% 
+  phyloseq_classifier(method = "logistic_regression", seed = 3456,
+                      y_response = "delta_mean_bleeding_tp2", x_predictors = "All") -> logistic_regression5
+
+logistic_regression5$pred_obs
+```
+
+```{r}
+logistic_regression5$res_train
+```
+```{r}
+logistic_regression5$plot_feature_imp4
+```
+```{r}
+logistic_regression5$plot_feature_imp2
+```
+
+# Random forest:
+
+## TP1 Plaque
+
+```{r}
+ps_up %>% 
+  phyloseq::subset_samples(Time == "TP1" & 
+                             Sample == "Plaque" & 
+                             Inflamation_response %in% c("High","Low")) %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED") %>% 
+  microbiome::transform(transform = "compositional") %>% 
+  phyloseq_classifier(y_response = "Inflamation_response", 
+                      x_predictors = "Phylum",  
+                      additional_predictors = c("InvSimpson", "Shannon", "Simpson", "Sex", "age"),
+                      boruta_pValue = 0.001,
+                      seed = 456) -> tp1_plaque
+```
+
+```{r}
+tp1_plaque$res_train
+```
+
+
+```{r}
+tp1_plaque$res_train$trainingData
+```
+
+
+```{r}
+tp1_plaque$plotROCpred
+```
+
+```{r}
+tp1_plaque$plotPRpred
+```
+
+
+```{r}
+tp1_plaque$plot_feature_imp2
+```
+
+
+```{r}
+tp1_plaque$plot_feature_imp4
+```
+
+```{r}
+tp1_plaque$res_feature_imp %>% 
+  rownames_to_column("feature")
+```
+
+## TP1 Saliva
+
+```{r}
+ps_up %>% 
+  phyloseq::subset_samples(Time == "TP1" & 
+                             Sample == "Saliva" & 
+                             Inflamation_response %in% c("High", "Low")) %>%
+  microViz::ps_mutate(Inflamation_response = as.factor(Inflamation_response)) %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED_UNCLASSIFIED") %>% 
+  microbiome::transform(transform = "compositional") %>% 
+  phyloseq_classifier(y_response = "Inflamation_response", x_predictors = "All",                       boruta_pValue = 0.01,
+                      seed = 456) -> tp1_saliva
+
+
+tp1_saliva$plotROCpred
+```
+
+```{r}
+tp1_saliva$plotPRpred
+```
+
+
+
+```{r}
+tp1_saliva$plot_feature_imp2
+```
+
+
+```{r}
+tp1_saliva$plot_feature_imp4
+```
+
+```{r}
+tp1_saliva$res_feature_imp %>% 
+  rownames_to_column("feature")
+```
+
+
+```{r}
+sessionInfo()
+```

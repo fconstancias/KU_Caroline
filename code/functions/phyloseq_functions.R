@@ -978,7 +978,7 @@ phyloseq_diff_abundance <- function(ps_tmp = ps_up %>%  subset_samples(Sample ==
                           save_models = TRUE, 
                           plot_summary_plot = TRUE,
                           cores = 2, 
-                          verbosity = "error") -> out$maaslin3 # random_effects = , group_effects = )
+                          verbosity = "ERROR") -> out$maaslin3 # random_effects = , group_effects = )
       
       # Save results in LEfSe format
       # maaslin_write_results_lefse_format(masslin3_output_dir, maaslin3$fit_data_abundance, maaslin3$fit_data_prevalence)

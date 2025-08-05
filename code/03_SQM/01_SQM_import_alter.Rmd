@@ -1,0 +1,192 @@
+---
+title: " Study II - Importing functional data from gene identified in the co-assembly to phyloseq"
+author: "Florentin Constancias"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  html_document: 
+    toc: yes
+    keep_md: yes
+---
+
+
+```{r setup, include=FALSE}
+rm(list = ls())
+gc()
+
+# invisible(lapply(paste0('package:', names(sessionInfo()$otherPkgs)), detach, character.only=TRUE, unload=TRUE))
+
+# options(java.parameters = "-Xmx80000m")
+```
+
+
+```{r setup2, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+##knitr::opts_chunk$set(cache=TRUE)
+# knitr::opts_chunk$set(echo = TRUE)
+# knitr::opts_chunk$set(dev = "ragg_png") # https://ragg.r-lib.org/index.html
+##knitr::opts_chunk$set(fig.width = 6) #https://r4ds.had.co.nz/graphics-for-communication.html#figure-sizing
+knitr::opts_chunk$set(fig.asp = 0.618)
+knitr::opts_chunk$set(fig.show = "hold")
+knitr::opts_chunk$set(fig.show = "70%")
+knitr::opts_chunk$set(fig.align = "center")
+```
+
+```{r setup3, include=FALSE}
+library(tidyverse)
+library(readxl)
+library(readr)
+
+source("https://raw.githubusercontent.com/fconstancias/metabaRpipe-source/master/Rscripts/functions.R")
+source("https://raw.githubusercontent.com/fconstancias/KU_Caroline/refs/heads/main/code/functions/phyloseq_functions.R")
+```
+
+After running SQM pipeline: 
+
+```{bash, eval = FALSE}
+(SqueezeMeta) [ljc444@esrumhead01fl scratch]$ ~/.conda/envs/SqueezeMeta/SqueezeMeta/utils/sqm2tables.py 010_coassembly/Trial2-co-assembly Trial2-co-assembly_SQM_tables
+```
+
+You would need to downlaod the files locally from /maps/projects/hansen_ol-AUDIT//data/Trial2-co-assembly_SQM/Trial2-co-assembly/results/tables
+
+These are the files:
+
+├── Trial2-co-assembly.COG.abund.tsv
+├── Trial2-co-assembly.COG.bases.tsv
+├── Trial2-co-assembly.COG.copyNumber.tsv
+├── Trial2-co-assembly.COG.cov.tsv
+├── Trial2-co-assembly.COG.names.tsv
+├── Trial2-co-assembly.COG.tpm.tsv
+├── Trial2-co-assembly.KO.abund.tsv
+├── Trial2-co-assembly.KO.bases.tsv
+├── Trial2-co-assembly.KO.copyNumber.tsv
+├── Trial2-co-assembly.KO.cov.tsv
+├── Trial2-co-assembly.KO.names.tsv
+├── Trial2-co-assembly.KO.tpm.tsv
+├── Trial2-co-assembly.PFAM.abund.tsv
+├── Trial2-co-assembly.PFAM.bases.tsv
+├── Trial2-co-assembly.PFAM.copyNumber.tsv
+├── Trial2-co-assembly.PFAM.cov.tsv
+├── Trial2-co-assembly.PFAM.tpm.tsv
+├── Trial2-co-assembly.RecA.tsv
+├── Trial2-co-assembly.bin.tax.tsv
+├── Trial2-co-assembly.class.allfilter.abund.tsv
+├── Trial2-co-assembly.class.nofilter.abund.tsv
+├── Trial2-co-assembly.class.prokfilter.abund.tsv
+├── Trial2-co-assembly.contig.sequences.tsv
+├── Trial2-co-assembly.contig.tax.allfilter.tsv
+├── Trial2-co-assembly.contig.tax.nofilter.tsv
+├── Trial2-co-assembly.contig.tax.prokfilter.tsv
+├── Trial2-co-assembly.family.allfilter.abund.tsv
+├── Trial2-co-assembly.family.nofilter.abund.tsv
+├── Trial2-co-assembly.family.prokfilter.abund.tsv
+├── Trial2-co-assembly.genus.allfilter.abund.tsv
+├── Trial2-co-assembly.genus.nofilter.abund.tsv
+├── Trial2-co-assembly.genus.prokfilter.abund.tsv
+├── Trial2-co-assembly.order.allfilter.abund.tsv
+├── Trial2-co-assembly.order.nofilter.abund.tsv
+├── Trial2-co-assembly.order.prokfilter.abund.tsv
+├── Trial2-co-assembly.orf.sequences.tsv
+├── Trial2-co-assembly.orf.tax.allfilter.tsv
+├── Trial2-co-assembly.orf.tax.nofilter.tsv
+├── Trial2-co-assembly.orf.tax.prokfilter.tsv
+├── Trial2-co-assembly.phylum.allfilter.abund.tsv
+├── Trial2-co-assembly.phylum.nofilter.abund.tsv
+├── Trial2-co-assembly.phylum.prokfilter.abund.tsv
+├── Trial2-co-assembly.species.allfilter.abund.tsv
+├── Trial2-co-assembly.species.nofilter.abund.tsv
+├── Trial2-co-assembly.species.prokfilter.abund.tsv
+├── Trial2-co-assembly.superkingdom.allfilter.abund.tsv
+├── Trial2-co-assembly.superkingdom.nofilter.abund.tsv
+└── Trial2-co-assembly.superkingdom.prokfilter.abund.tsv
+
+
+# Import and get ready:
+
+## metaphlan data - so we have metadata and colors:
+
+```{r}
+
+load(here::here("../../data/processed_data/metaphlan/01_data.Rdata") )
+
+```
+
+## SQM tables:
+
+```{r}
+#' Convert SQM Table to Phyloseq Object
+#'
+#' This function reads files from a specified directory and constructs a Phyloseq object
+#' using metric and taxonomy information derived from SQM tables.
+#'
+#' @param dir Character string specifying the directory containing the SQM table files. Default: NULL.
+#' @param db Character string specifying the database prefix used in file naming (e.g., "COG"). Default: "COG".
+#' @param metric Character string specifying the metric type (e.g., "tpm"). Default: "tpm".
+#'
+#' @return A `phyloseq` object constructed from the specified SQM tables.
+#'
+#' @details
+#' The function searches the directory for two files:
+#' - A metric file matching the pattern `db.metric.tsv`.
+#' - A names file matching the pattern `db.names.tsv`.
+#'
+#' It reads the files, processes them into matrices, and constructs a `phyloseq` object.
+#'
+#' @examples
+#' # Example usage (ensure the directory and files exist):
+#' # ps <- SQM_table_2phyloseq(dir = "path/to/dir", db = "COG", metric = "tpm")
+#'
+```
+
+```{r}
+SQM_table_2phyloseq(dir =  "/Volumes/Elements/Caroline_KU/full_coassembly/SQM/full_coassembly_SQM_tables/tables/", 
+                                db = "COG", metric = "tpm") -> ps
+
+ps
+```
+
+
+```{r}
+ps %>% 
+  sample_names() %>% 
+  str_extract(.,"[^_]+") %>% 
+  str_remove_all(., "[A-Z]") %>% 
+  paste0("S_",.) -> sample_names(ps)
+```
+
+```{r}
+ps %>% 
+  physeq_add_metadata(metadata = ps_up %>% 
+                        sample_data() %>% 
+                        data.frame() %>% 
+                        rownames_to_column('sample_name')) -> ps
+```
+
+Phyloseq object with functional gene info from the gene identified in the coassembly together with the metadata of the metaphlan phyloseq obejct. 
+
+
+```{r}
+ps
+```
+
+```{r}
+# save(period_pal,
+#      sample_pal,
+#      sex_pal,
+#      sub_pal,
+#      time_pal,
+#      p_meta_delta, p_meta,p_meta_ratio, 
+#      ps_up, clin_xy, clin_xy_d, pclust_3, pclust_2, file = here::here("../../data/processed_data/metaphlan/01_data.Rdata"))
+```
+
+
+```{r}
+# saveRDS(object = ps_up, file = here::here("../../data/processed_data/metaphlan/metaphlan4.1.1_phyloseq.RDS"))
+```
+
+
+
+```{r}
+
+sessionInfo()
+```

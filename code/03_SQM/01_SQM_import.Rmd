@@ -1,0 +1,557 @@
+---
+title: " Study II - Importing SQM data to phyloseq"
+author: "Florentin Constancias"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  html_document: 
+    toc: yes
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+rm(list = ls())
+gc()
+
+# invisible(lapply(paste0('package:', names(sessionInfo()$otherPkgs)), detach, character.only=TRUE, unload=TRUE))
+
+# options(java.parameters = "-Xmx80000m")
+```
+
+
+```{r setup2, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+##knitr::opts_chunk$set(cache=TRUE)
+# knitr::opts_chunk$set(echo = TRUE)
+# knitr::opts_chunk$set(dev = "ragg_png") # https://ragg.r-lib.org/index.html
+##knitr::opts_chunk$set(fig.width = 6) #https://r4ds.had.co.nz/graphics-for-communication.html#figure-sizing
+knitr::opts_chunk$set(fig.asp = 0.618)
+knitr::opts_chunk$set(fig.show = "hold")
+knitr::opts_chunk$set(fig.show = "70%")
+knitr::opts_chunk$set(fig.align = "center")
+```
+
+```{r setup3, include=FALSE}
+library(tidyverse)
+library(readxl)
+library(readr)
+
+# source("https://raw.githubusercontent.com/fconstancias/metabaRpipe-source/master/Rscripts/functions.R")
+# source("https://raw.githubusercontent.com/fconstancias/DivComAnalyses/master/R/phyloseq_biobakery_functions.R")
+# source("https://raw.githubusercontent.com/fconstancias/DivComAnalyses/master/R/phyloseq_varia.R") 
+# 
+# source_dir = "https://raw.githubusercontent.com/fconstancias/DivComAnalyses/master/R/"
+# # source_dir = "~/Documents/GitHub/DivComAnalyses/R/"
+# 
+# source(paste0(source_dir,"phyloseq_biobakery_functions.R"))
+# source(paste0(source_dir,"phyloseq_varia.R"))
+
+```
+
+Running SQM pipeline:
+
+```{bash, eval = FALSE}
+
+```
+
+
+After running SQM pipeline: 
+
+```{bash, eval = FALSE}
+(SqueezeMeta) [ljc444@esrumhead01fl scratch]$ ~/.conda/envs/SqueezeMeta/SqueezeMeta/utils/sqm2tables.py 010_coassembly/Trial2-co-assembly Trial2-co-assembly_SQM_tables
+```
+
+
+```{r, eval = FALSE}
+"Trial2-co-assembly_SQM_tables/" %>% loadSQMlite(project_path= .) -> trial2_coass_SQM_lite
+> "data/Trial2-co-assembly_SQM/Trial2-co-assembly/" %>% loadSQM(project_path= ., engine = "data.table", load_sequences = FALSE) -> trial2_coass_SQM
+Generating tabular outputs for project in data/Trial2-co-assembly_SQM/Trial2-co-assembly/
+  trial2_coass_SQM %>% saveRDS(., file = "scratch/Trial2-co-assembly_SQM_tables/trial2_coass_SQM.RDS")
+```
+
+# Import and get ready:
+
+## metaphlan data - so we have metadata and colors:
+
+```{r}
+
+load(here::here("../../data/processed_data/metaphlan/01_data.Rdata") )
+
+```
+
+## SQM full data
+
+Too much information, abandoned.
+
+```{r, eval=FALSE}
+# here::here("../../data/processed_data/SQM/trial2_coass_SQM.RDS alias") %>%
+"/Volumes/Elements/Caroline_KU/trial2_coass_SQM.RDS" %>% 
+  readRDS(.) -> data
+```
+
+We want a function to export phyloseq objects of gene level / contig level information using diff quantification metrics (tpm, abund, ...).
+
+```{r}
+gc()
+```
+
+```{r, eval= FALSE}
+import_SQMorfs2phyloseq <- function(SQM_obj = NULL, 
+                                    metric = "tpm",
+                                    rename_expr = "function(colname) colname %>%
+                  str_extract(\"[^_]+\") %>%
+                  str_remove_all(\"[A-Z]\") %>%
+                  paste0(\"S_\", .)",
+                  sample_data = NULL
+)
+{
+  
+  # data$orfs[[metric]] %>% 
+  #   # head() %>% 
+  #   as.data.frame() %>% 
+  #     rename_with(~ .x %>%
+  #                 str_extract("[^_]+") %>%
+  #                 str_remove_all("[A-Z]") %>%
+  #                 paste0("S_", .))
+  
+  # Function to rename columns dynamically
+  rename_columns <- function(data, rename_expr) {
+    # Parse the rename expression
+    rename_fn <- eval(rlang::parse_expr(rename_expr))
+    
+    # Apply renaming logic
+    data %>%
+      rename_with(~ rename_fn(.x))
+  }
+  
+  # rename_columns(SQM_obj$orfs[[metric]] %>% 
+  # as.data.frame(), 
+  # rename_expr) -> SQM_obj$orfs[[metric]]
+  rownames(SQM_obj$orfs[[metric]] ) -> rownames(SQM_obj$orfs$table )
+  
+  phyloseq::phyloseq(
+    SQM_obj$orfs[[metric]]  %>% as.matrix()  %>% otu_table(taxa_are_rows = TRUE),
+    SQM_obj$orfs$table %>% as.matrix() %>% tax_table(),
+    sample_data %>% sample_data() 
+  ) -> ps
+  
+  return(ps)
+}
+# To consider: Add several binning stuff (manual, SQM DAS) as well as their GTDB taxonomy and their Drep clusters.
+```
+
+```{r, eval = FALSE}
+import_SQMorfs2phyloseq(SQM_obj = data,
+                        sample_data = sample_data(ps_up))
+```
+
+## SQM full data
+
+
+```{r}
+# Function to process files in a directory with vroom
+SQM_orf2phyloseq <- function(directory= "/Volumes/Elements/Caroline_KU/full_coassembly/SQM/",
+                             pattern = "\\.(orftable|contigtable)\\.gz$",
+                             skip = 1,
+                             n_max = 10000,
+                             metric = "TPM",
+                             rm_NA_of = "COG ID",
+                             phyloseq_tax_col = c("COGPATH","COGFUN","COG_ID","Gene_name"),
+                             sample_rename_expr = "function(colname) colname %>%
+                  str_remove_all(\"[A-Z]\") %>%
+                  paste0(\"S\", .)",
+                  metadata = sample_data(ps_up) %>% 
+                    data.frame()
+)
+
+{
+  
+  library(vroom)
+  
+  # List all files in the directory ending with .orftable.gz and .contigtable.gz
+  files <- list.files(directory, pattern = pattern, full.names = TRUE)
+  
+  # Use vroom to read all files, skipping the first line, with multi-threading
+  data <- lapply(files, function(file) vroom(file, skip = skip, n_max = n_max))
+  
+  names(data) <- sub(paste0(".*", pattern), "\\1", files)
+  
+  data$contigtable %>% 
+    dplyr::select(`Contig ID`,
+                  Tax,
+                  Disparity,
+                  Length,
+                  `Num genes`) %>% 
+    rename_with(~ str_replace_all(.x, " ", "_"), everything()) %>% 
+    rename_with(
+      ~ ifelse(.x %in% c("Contig_ID","Bin_ID") , .x, paste0(.x, "_contig")), 
+      everything()
+    ) -> contig_data
+  
+  # data$orftable %>% 
+  #   dplyr::select(
+  #     starts_with(prefix_to_keep), # Keep columns starting with "TPM"
+  #     -any_of(c("Molecule", "Method", "Length AA", "GC perc"))        # Exclude specified columns
+  #   )
+  # rename_with(~ str_replace_all(.x, " ", "_"), everything()) -> orf_tmp
+  
+  data$orftable %>% 
+    { if (!is.null(rm_NA_of)) 
+      filter(., !is.na(.data[[rm_NA_of]]))
+      else .} ->  orf_tmp
+  
+  
+  orf_tmp %>% 
+    # filter(!is.na(.data[[rm_NA_of]])) %>% 
+    select(
+      "ORF ID",
+      starts_with(metric)) %>%       # Exclude specified columns
+    rename_with(~ str_replace_all(.x, " ", "_"), 
+                everything()) -> orf_quant
+  
+  orf_tmp %>% 
+    select(`ORF ID`,
+           `Contig ID`,
+           `Length NT`,
+           `Gene name`:PFAM) %>% 
+    rename_with(~ str_replace_all(.x, " ", "_"), everything()) -> orf_data
+  
+  orf_data %>% 
+    left_join(contig_data) -> full_data
+  
+  rm(orf_tmp,orf_data,contig_data)
+  
+  # Parse and evaluate the expression to create a function
+  rename_function <- eval(rlang::parse_expr(sample_rename_expr))
+  
+  
+  phyloseq::phyloseq(
+    
+    
+    orf_quant %>% 
+      column_to_rownames("ORF_ID") %>% 
+      rename_with(rename_function) %>%  # Apply dynamic renaming
+      as.matrix(rownames = TRUE)  %>% 
+      otu_table(taxa_are_rows = TRUE)
+    
+    ,
+    
+    full_data %>% 
+      column_to_rownames("ORF_ID") %>% 
+      dplyr::select(any_of(c(phyloseq_tax_col))) %>% 
+      as.matrix(rownames = TRUE)  %>% 
+      tax_table(),
+    
+    metadata %>%
+      sample_data()
+  ) -> ps
+  
+  return(ps)
+}
+```
+
+```{r}
+#' Process ORF and Contig Tables to Create a Phyloseq Object
+#' 
+#' This function processes ORF and Contig tables in a specified directory, 
+#' cleans and renames columns dynamically (if specified), and constructs a Phyloseq object 
+#' that includes the abundance table, taxonomy table, and sample metadata.
+#'
+#' @param directory A string representing the path to the directory containing the `.orftable.gz` and `.contigtable.gz` files. Default is `"/Volumes/Elements/Caroline_KU/full_coassembly/SQM/"`.
+#' @param pattern A regular expression pattern to match filenames in the directory (default matches `.orftable.gz` and `.contigtable.gz`).
+#' @param skip The number of lines to skip when reading files. Default is 1.
+#' @param n_max The maximum number of rows to read from each file. Default is 10000.
+#' @param metric The metric used for quantifying expression. Default is `"TPM"`.
+#' @param rm_NA_of Column name to remove rows with `NA` values. Default is `"COG ID"`. If `NULL`, no rows are removed.
+#' @param phyloseq_tax_col A vector of column names representing the taxonomy information for Phyloseq. Default is `c("COGPATH", "COGFUN", "COG_ID", "Gene_name")`.
+#' @param sample_rename_expr A string representing the dynamic expression for renaming sample columns. Default applies a transformation to remove uppercase letters and adds the `"S"` prefix. If `FALSE` or `NULL`, no renaming will be done.
+#' @param metadata A data frame containing sample metadata. Default is extracted from an existing `phyloseq` object `ps_up`.
+#'
+#' @return A Phyloseq object created by combining the processed ORF quantification data, contig data, and sample metadata.
+#' 
+#' @import vroom dplyr phyloseq
+#' @export
+SQM_orf2phyloseq <- function(directory = "/Volumes/Elements/Caroline_KU/full_coassembly/SQM/",
+                             pattern = "\\.(orftable|contigtable)\\.gz$",
+                             skip = 1,
+                             n_max = 10000,
+                             metric = "TPM",
+                             rm_NA_of = "COG ID",
+                             threads = 1,
+                             phyloseq_tax_col = c("COGPATH", "COGFUN", "COG_ID", "Gene_name"),
+                             sample_rename_expr = "function(colname) colname %>%
+                  str_remove_all(\"[A-Z]\") %>%
+                  paste0(\"S\", .)",
+                  metadata = sample_data(ps_up) %>% 
+                    data.frame()
+)
+{
+  
+  require(vroom);require(tidyverse)
+  
+  # List all files in the directory ending with .orftable.gz and .contigtable.gz
+  files <- list.files(directory, pattern = pattern, full.names = TRUE)
+  
+  # Check if files are found, else return an error
+  if (length(files) == 0) {
+    stop("No files matching the specified pattern were found in the directory.")
+  }
+  
+  Sys.setenv(VROOM_THREADS = threads)  # Set the number of threads 
+  
+  # Use vroom to read all files, skipping the first line, with multi-threading
+  data <- lapply(files, function(file) vroom(file, skip = skip, n_max = n_max))
+  
+  # Assign names to the list based on the files
+  names(data) <- sub(paste0(".*", pattern), "\\1", files)
+  
+  # Process the contig table
+  data$contigtable %>% 
+    dplyr::select(`Contig ID`,
+                  Tax,
+                  Disparity,
+                  Length,
+                  `Num genes`) %>% 
+    rename_with(~ str_replace_all(.x, " ", "_"), everything()) %>% 
+    rename_with(
+      ~ ifelse(.x %in% c("Contig_ID", "Bin_ID"), .x, paste0(.x, "_contig")), 
+      everything()
+    ) -> contig_data
+  
+  # Filter orf table based on rm_NA_of column
+  data$orftable %>% 
+    { 
+      if (!is.null(rm_NA_of)) 
+        filter(., !is.na(.data[[rm_NA_of]]))
+      else . 
+    } -> orf_tmp
+  
+  # Select columns for ORF quantification based on the metric and rename
+  orf_tmp %>% 
+    select(
+      "ORF ID",
+      starts_with(metric)) %>%       
+    rename_with(~ str_replace_all(.x, " ", "_"), 
+                everything()) -> orf_quant
+  
+  # Select columns for ORF data and rename
+  orf_tmp %>% 
+    select(`ORF ID`,
+           `Contig ID`,
+           `Length NT`,
+           `Gene name`:PFAM) %>% 
+    rename_with(~ str_replace_all(.x, " ", "_"), everything()) -> orf_data
+  
+  # Join contig data and orf data
+  orf_data %>% 
+    left_join(contig_data) -> full_data
+  
+  # Remove temporary variables to save memory
+  rm(orf_tmp, orf_data, contig_data)
+  
+  # Check if renaming should be done, and apply the renaming function if needed
+  if (!is.null(sample_rename_expr) && sample_rename_expr != FALSE) {
+    # Parse and evaluate the expression to create a function for dynamic renaming
+    rename_function <- eval(rlang::parse_expr(sample_rename_expr))
+    
+    # Apply the renaming function to the columns of the ORF quantification table
+    orf_quant <- orf_quant %>%
+      column_to_rownames("ORF_ID") %>%
+      rename_with(rename_function) %>%
+      as.matrix(rownames = TRUE)
+  }
+  
+  # Construct the phyloseq object
+  phyloseq::phyloseq(
+    orf_quant %>% 
+      otu_table(taxa_are_rows = TRUE),
+    
+    full_data %>% 
+      column_to_rownames("ORF_ID") %>% 
+      dplyr::select(any_of(c(phyloseq_tax_col))) %>% 
+      as.matrix(rownames = TRUE)  %>% 
+      tax_table(),
+    
+    metadata %>%
+      sample_data()
+  ) -> ps
+  
+  return(ps)
+}
+
+```
+
+
+```{r}
+SQM_orf2phyloseq(n_max = 10000000) -> test
+```
+
+
+```{r}
+#' Convert SQM ORF Tables to Phyloseq Object
+#'
+#' This function reads `.orftable.gz` and `.contigtable.gz` files, processes the data
+#' into a format suitable for use with the `phyloseq` package, and creates a `phyloseq` object.
+#' The function includes data cleaning steps, column renaming, and handling large data manipulation
+#' with garbage collection to optimize memory usage.
+#'
+#' @param directory Character. The directory where the input files (`.orftable.gz` and `.contigtable.gz`) are located.
+#' @param pattern Character. Regular expression pattern for matching filenames. Default is `\\.(orftable|contigtable)\\.gz$`.
+#' @param skip Integer. The number of lines to skip in each file before reading. Default is 1.
+#' @param n_max Integer. The maximum number of lines to read from each file. Default is 10000.
+#' @param metric Character. The metric for quantification (e.g., "TPM"). Default is "TPM".
+#' @param rm_NA_of Character or NULL. The column to filter out NAs. If NULL, no filtering is applied.
+#' @param threads Integer. Number of threads to use for multi-threading with `vroom`. Default is 1.
+#' @param phyloseq_tax_col Character vector. The columns to include in the taxonomic data for phyloseq. Default is `c("COGPATH", "COGFUN", "COG_ID", "Gene_name")`.
+#' @param sample_rename_expr Character or FALSE. A function expression to rename sample columns. If FALSE or NULL, no renaming is applied.
+#' @param metadata DataFrame. A `sample_data` object to provide metadata for the phyloseq object. Default is `sample_data(ps_up) %>% data.frame()`.
+#'
+#' @return A `phyloseq` object.
+#' @export
+SQM_orf2phyloseq <- function(directory = "/Volumes/Elements/Caroline_KU/full_coassembly/SQM/",
+                             pattern = "\\.(orftable|contigtable)\\.gz$",
+                             skip = 1,
+                             n_max = 10000,
+                             metric = "TPM",
+                             rm_NA_of = "COG ID",
+                             threads = 3,
+                             phyloseq_tax_col = c("COGPATH", "COGFUN", "COG ID", "Gene name"),
+                             sample_rename_expr = "function(colname) colname %>%
+                                                   str_remove_all(\"[A-Z]\") %>%
+                                                   str_trim() %>%
+                                                   paste0(\"S_\", .)"
+) {
+  # Required libraries
+  require(vroom); require(tidyverse); require(phyloseq)
+  
+  # List all files in the directory ending with .orftable.gz and .contigtable.gz
+  files <- list.files(directory, pattern = pattern, full.names = TRUE)
+  
+  
+  # Check if files are found, else return an error
+  if (length(files) == 0) {
+    stop("No files matching the specified pattern were found in the directory.")
+  }
+  
+  # Set the number of threads to use in vroom
+  Sys.setenv(VROOM_THREADS = threads)
+  
+  # Load a small sample of the ORF table to determine the required columns
+  orf_toy <- vroom(files[[1]], skip = skip, n_max = 10)
+  
+  # Select columns from ORF table based on pattern and provided list
+  selected_columns <- c("ORF ID", "Contig ID", "Length NT", phyloseq_tax_col, grep(paste0("^",metric), colnames(orf_toy), value = TRUE))
+  
+  # Load the full ORF data with selected columns and optional NA filtering
+  orf_tmp <- vroom(files[[1]], skip = skip, n_max = n_max, col_select = selected_columns) %>% 
+    { 
+      if (!is.null(rm_NA_of)) 
+        filter(., !is.na(.data[[rm_NA_of]]))
+      else . 
+    }
+  
+  # Load the contig table with relevant columns
+  contig_data <- vroom(files[[2]], skip = skip, n_max = n_max, col_select = any_of(c("Contig ID", "Length", "Disparity", "Tax", "Bin ID"))) %>% 
+    rename_with(
+      ~ ifelse(.x %in% c("Contig ID", "Bin ID"), .x, paste0(.x, "_contig")), 
+      everything()
+    )
+  
+  print("reading files done")
+  
+  # Select columns for ORF quantification based on the metric
+  orf_quant <- orf_tmp %>% 
+    select("ORF ID", starts_with(metric)) 
+  
+  print("orf_quant done")
+  
+  # Select other relevant columns for ORF data
+  orf_data <- orf_tmp %>% 
+    select(any_of(c("ORF ID", "Contig ID", "Length NT", phyloseq_tax_col))) 
+  
+  print("orf_data done")
+  
+  # # Join contig data and orf data together
+  # full_data <- orf_data %>%
+  #   left_join(contig_data, by = "Contig ID")
+  # 
+  # print("full_data done")
+  
+  # Remove temporary variables to save memory
+  rm(orf_tmp, contig_data, orf_toy)
+  gc()  # Run garbage collection after removing temporary variables
+  
+  print("cleaning done")
+  
+  # # Check if renaming should be done, and apply the renaming function if needed
+  # if (!is.null(sample_rename_expr) && sample_rename_expr != FALSE) {
+  #   # Parse and evaluate the expression to create a function for dynamic renaming
+  #   rename_function <- eval(rlang::parse_expr(sample_rename_expr))
+  #   
+  #   # Apply the renaming function to the columns of the ORF quantification table
+  #   orf_quant <- orf_quant %>%
+  #     column_to_rownames("ORF ID") %>%
+  #     rename_with(rename_function) %>%
+  #     as.matrix(rownames = TRUE)
+  # }
+  # 
+  # print("orf_quant cleaning done")
+  
+  # Construct the phyloseq object
+  ps <- phyloseq::phyloseq(
+    orf_quant %>% 
+      column_to_rownames("ORF ID") %>% 
+      as.matrix(rownames = TRUE) %>% 
+      otu_table(taxa_are_rows = TRUE),
+    orf_data %>% 
+      column_to_rownames("ORF ID") %>% 
+      dplyr::select(any_of(c(phyloseq_tax_col))) %>% 
+      as.matrix(rownames = TRUE) %>% 
+      tax_table()#,
+    # metadata %>%
+    # sample_data()
+  )
+
+  return(ps)
+}
+
+
+```
+
+
+
+```{r}
+SQM_orf2phyloseq(n_max = 1000000, threads = 6) -> test
+```
+
+
+
+```{r}
+ps %>% 
+  sample_names() %>% 
+  str_extract(.,"[^_]+") %>% 
+  str_remove_all(., "[A-Z]")  -> sample_names(ps)
+```
+
+
+```{r}
+# save(period_pal,
+#      sample_pal,
+#      sex_pal,
+#      sub_pal,
+#      time_pal,
+#      p_meta_delta, p_meta,p_meta_ratio, 
+#      ps_up, clin_xy, clin_xy_d, pclust_3, pclust_2, file = here::here("../../data/processed_data/metaphlan/01_data.Rdata"))
+```
+
+
+```{r}
+# saveRDS(object = ps_up, file = here::here("../../data/processed_data/metaphlan/metaphlan4.1.1_phyloseq.RDS"))
+```
+
+
+
+```{r}
+
+sessionInfo()
+```

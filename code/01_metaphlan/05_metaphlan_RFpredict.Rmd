@@ -1,0 +1,215 @@
+---
+title: " Study II - Beta-diversity analyses of metaphlan profiles"
+author: "Florentin Constancias"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  html_document: 
+    toc: yes
+    keep_md: yes
+---
+
+
+```{r setup, include=FALSE}
+rm(list = ls())
+gc()
+
+# invisible(lapply(paste0('package:', names(sessionInfo()$otherPkgs)), detach, character.only=TRUE, unload=TRUE))
+
+# options(java.parameters = "-Xmx80000m")
+```
+
+
+```{r setup2, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+##knitr::opts_chunk$set(cache=TRUE)
+# knitr::opts_chunk$set(echo = TRUE)
+# knitr::opts_chunk$set(dev = "ragg_png") # https://ragg.r-lib.org/index.html
+##knitr::opts_chunk$set(fig.width = 6) #https://r4ds.had.co.nz/graphics-for-communication.html#figure-sizing
+knitr::opts_chunk$set(fig.asp = 0.618)
+knitr::opts_chunk$set(fig.show = "hold")
+knitr::opts_chunk$set(fig.show = "70%")
+knitr::opts_chunk$set(fig.align = "center")
+```
+
+```{r setup3, include=FALSE}
+library(tidyverse)
+library(readxl)
+library(readr)
+library(speedyseq)
+library(microViz)
+```
+
+```{r setup4, include=FALSE}
+
+'%!in%' <- function(x,y)!('%in%'(x,y))
+
+source("https://raw.githubusercontent.com/fconstancias/DivComAnalyses/refs/heads/master/R/phyloseq_microeco.R")
+```
+
+
+```{r}
+load(here::here("../../data/processed_data/metaphlan/01_data.Rdata"))
+# load(here::here("../../data/processed_data/metaphlan/02_data.Rdata"))
+```
+
+
+```{r}
+#' @param physeq A `phyloseq` object. Default is a subset of `ps_up`.
+#' @param y_response Character. The response variable name. Default is "Time".
+#' @param x_predictors Character. The predictor variables. Default is "All".
+#' @param prop_train Numeric. Proportion of data to use for training. Default is 3/4.
+#' @param method Character. Classification method. Default is "rf" (random forest).
+#' @param plot_group Character. Group to plot. Default is "all".
+#' @param color_values Named vector. Color palette for plots. Default is `time_pal`.
+#' @param ref_train_max_mtry Integer. Maximum number of variables randomly sampled as candidates at each split in the training phase. Default is 5.
+#' @param ref_train_ntree Numeric vector. Number of trees in the random forest. Default is c(100, 500, 1000).
+#' @param feature_imp_nrep Integer. Number of repetitions for feature importance analysis. Default is 1000.
+#' @param boruta_pValue Numeric. p-value threshold for Boruta feature selection. Default is 0.05.
+#' @param boruta_maxRuns Integer. Maximum number of Boruta iterations. Default is 300.
+#' @param seed Integer. Random seed for reproducibility. Default is 123456.
+```
+
+
+# Microeco:
+
+## logistic regression:
+
+```{r}
+require(microeco)
+
+ps_up %>% 
+  ps_mutate(
+    ., 
+    mean_bleeding_tp2 = map_dbl(
+      Subject, 
+      ~ mean(mean_bleeding[Time == "TP2" & Subject == .x], na.rm = TRUE)
+    ),
+    delta_mean_bleeding_tp2 = map_dbl(
+      Subject, 
+      ~ mean(delta_mean_bleeding[Time == "TP2" & Subject == .x], na.rm = TRUE)
+    ),
+    delta_mean_plaque_tp2 = map_dbl(
+      Subject, 
+      ~ mean(delta_mean_plaque[Time == "TP2" & Subject == .x], na.rm = TRUE)
+    ),
+    mean_plaque_tp2 = map_dbl(
+      Subject, 
+      ~ mean(mean_plaque[Time == "TP2" & Subject == .x], na.rm = TRUE)
+    ),
+  ) %>% 
+  phyloseq::subset_samples(Time == "TP1" &
+                             Sample == "Plaque")  %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED_UNCLASSIFIED") %>% 
+  microbiome::transform(transform = "compositional") %>% 
+  phyloseq_classifier(method = "logistic_regression",
+                      y_response = "delta_mean_plaque_tp2", x_predictors = "All") -> logistic_regression
+```
+
+```{r}
+logistic_regression$res_train
+```
+
+
+```{r}
+logistic_regression$plot_feature_imp2
+```
+
+```{r}
+logistic_regression$plot_feature_imp4
+```
+
+```{r}
+logistic_regression$res_train
+```
+
+# Random forest:
+
+## TP1 Plaque
+
+```{r}
+ps_up %>% 
+  phyloseq::subset_samples(Time == "TP1" & 
+                             Sample == "Plaque" & 
+                             Inflamation_response %in% c("High", "Low")) %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED_UNCLASSIFIED") %>% 
+  microbiome::transform(transform = "compositional") %>% 
+  phyloseq_classifier(y_response = "Inflamation_response", 
+                      x_predictors = "All",
+                      boruta_pValue = 0.001,
+                      seed = 456) -> tp1_plaque
+```
+
+```{r}
+tp1_plaque$res_train
+```
+
+
+```{r}
+tp1_plaque$res_train$trainingData
+```
+
+
+```{r}
+tp1_plaque$plotROCpred
+```
+
+```{r}
+tp1_plaque$plotPRpred
+```
+
+```{r}
+tp1_plaque$plot_feature_imp2
+```
+
+
+```{r}
+tp1_plaque$plot_feature_imp4
+```
+
+```{r}
+tp1_plaque$res_feature_imp %>% 
+  rownames_to_column("feature")
+```
+
+## TP1 Saliva
+
+```{r}
+ps_up %>% 
+  phyloseq::subset_samples(Time == "TP1" & 
+                             Sample == "Saliva" & 
+                             Inflamation_response %in% c("High", "Low")) %>%
+  microViz::ps_mutate(Inflamation_response = as.factor(Inflamation_response)) %>% 
+  speedyseq::filter_tax_table(Kingdom != "UNCLASSIFIED_UNCLASSIFIED") %>% 
+  microbiome::transform(transform = "compositional") %>% 
+  phyloseq_classifier(y_response = "Inflamation_response", x_predictors = "All",                       boruta_pValue = 0.01,
+                      seed = 456) -> tp1_saliva
+
+
+tp1_saliva$plotROCpred
+```
+
+```{r}
+tp1_saliva$plotPRpred
+```
+
+
+```{r}
+tp1_saliva$plot_feature_imp2
+```
+
+
+```{r}
+tp1_saliva$plot_feature_imp4
+```
+
+```{r}
+tp1_saliva$res_feature_imp %>% 
+  rownames_to_column("feature")
+```
+
+
+
+```{r}
+sessionInfo()
+```

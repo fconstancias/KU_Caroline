@@ -129,20 +129,25 @@ ps_up %>%
   subset_taxa(Class != "UNCLASSIFIED") %>% 
   transform_sample_counts(function(x) x/sum(x) * 1) %>% 
   phyloseq_explore_beta(ps_up = .,
-                    beta = beta,
-                    color_group = "Time",
-                    shape_group = "Sample",
-                    alpha = NULL,
-                    col_pal = time_pal,
-                    fill_pal = time_pal,
-                    path_group = "interaction(Sample,Subject)",
-                    facet_formula = "Sample ~ .",
-                    axis1 = 1,
-                    axis2 = 2,
-                    seed = 123,
-                    permanova_terms = c("Sample", "Time", "cluster_Dtp2"),
-                    metadata_dist_boxplot = c("Subject", "Time", "Sample"),
-                    strata = "none") -> out
+                        beta = beta,
+                        color_group = "Time",
+                        shape_group = "Sample",
+                        distance_for_more = "rAitchison",
+                        metadata_sel = c("delta_mean_plaque", "delta_mean_bleeding"),
+                        pval_cutoff = 0.05,
+                        top_r = 12,
+                        alpha = NULL,
+                        col_pal = time_pal,
+                        fill_pal = time_pal,
+                        path_group = "interaction(Sample,Subject)",
+                        facet_formula = "Sample ~ .",
+                        axis1 = 1,
+                        axis2 = 2,
+                        seed = 123,
+                        perm = 999,
+                        permanova_terms = c("Sample", "Time", "cluster_Dtp2"),
+                        metadata_dist_boxplot = c("Subject", "Time", "Sample"),
+                        strata = "none") -> out
 ```
 
 
@@ -156,19 +161,30 @@ Explained variance of the plots above.
 
 ```{r}
 out$expl_var %>% 
-  mutate_if(is.numeric, ~round(., 3)) %>% 
   DT::datatable()
 ```
 
 Focus on Robust Aitchinson distance, clear discrimination between site, display trajectories.
 
 ```{r}
-out$PCOA + facet_null()
+out$PCOA$p + facet_null() + stat_ellipse(data=out$PCOA$p$data,
+                                         segments = 21, linetype = 2, color = "grey80",
+                                         aes(group = interaction(time, Sample)),
+)
 ```
 Corresponding legend:
 
 ```{r}
-out$PCOA_leg
+out$PCOA$p_leg
+```
+
+
+```{r}
+out$env_fit_tax$plot 
+```
+
+```{r}
+out$env_fit_meta$plot
 ```
 
 Statistical evaluation of the beta diversity: association with Sample_Type, Time and Cluster of inflamation at TP2 -PERMANOVA:

@@ -1,0 +1,251 @@
+---
+title: " Study II - Beta-diversity analyses of metaphlan profiles"
+author: "Florentin Constancias"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  html_document: 
+    toc: yes
+    keep_md: no
+---
+
+
+```{r setup, include=FALSE}
+rm(list = ls())
+gc()
+
+# invisible(lapply(paste0('package:', names(sessionInfo()$otherPkgs)), detach, character.only=TRUE, unload=TRUE))
+# options(java.parameters = "-Xmx80000m")
+```
+
+
+```{r setup2, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+##knitr::opts_chunk$set(cache=TRUE)
+# knitr::opts_chunk$set(echo = TRUE)
+# knitr::opts_chunk$set(dev = "ragg_png") # https://ragg.r-lib.org/index.html
+##knitr::opts_chunk$set(fig.width = 6) #https://r4ds.had.co.nz/graphics-for-communication.html#figure-sizing
+knitr::opts_chunk$set(fig.asp = 0.618)
+knitr::opts_chunk$set(fig.show = "hold")
+knitr::opts_chunk$set(fig.show = "70%")
+knitr::opts_chunk$set(fig.align = "center")
+```
+
+```{r setup3, include=FALSE}
+library(tidyverse)
+library(readxl)
+library(readr)
+library(speedyseq)
+library(microViz)
+```
+
+```{r setup4, include=TRUE}
+source("https://raw.githubusercontent.com/fconstancias/KU_Caroline/refs/heads/main/code/functions/phyloseq_functions.R")
+
+source_dir = "https://raw.githubusercontent.com/fconstancias/DivComAnalyses/master/R/"
+# source_dir = "~/Documents/GitHub/DivComAnalyses/R/"
+
+source(paste0(source_dir,"phyloseq_normalisation.R"))
+source(paste0(source_dir,"phyloseq_varia.R"))
+source(paste0(source_dir,"phyloseq_beta.R"))
+```
+
+
+```{r}
+load(here::here("../../data/processed_data/metaphlan/01_data.Rdata"))
+load(here::here("../../data/processed_data/metaphlan/02_data.Rdata"))
+```
+
+```{r}
+pd <- position_dodge(0.3)
+```
+
+
+# Compute the distance:
+
+```{r, warning=FALSE, echo=TRUE, include=TRUE}
+ps_up %>%
+  subset_taxa(Class != "UNCLASSIFIED") %>% 
+  transform_sample_counts(function(x) x/sum(x) * 1) %>%
+  phyloseq_compute_bdiv() -> beta
+
+
+ps_up %>% 
+  subset_taxa(Class != "UNCLASSIFIED") %>% 
+  transform_sample_counts(function(x) x/sum(x) * 1) %>%
+  microViz::dist_calc(., dist = "robust.aitchison") %>% 
+  microViz::dist_get() %>% 
+  magrittr::divide_by(100) -> beta$rAitchison
+
+beta$bray <- NULL
+beta$sorensen <- NULL
+```
+
+
+# Example1 - all samples:
+
+```{r, warning=FALSE, echo=TRUE, include=TRUE}
+ps_up %>%
+  subset_taxa(Class != "UNCLASSIFIED") %>%
+  # subset_samples(Sample == "Saliva" &
+  # Time == "TP1") %>% 
+  transform_sample_counts(function(x) x/sum(x) * 1) %>% 
+  phyloseq_explore_beta(ps_up = .,
+                        beta = beta,
+                        color_group = "Time",
+                        shape_group = "Sample",
+                        distance_for_more = "rAitchison", #distance for detailed plot (path, and envfit vectors)
+                        tax_rank_fit  = "Genus", # taxonomic level for envfit vector fitting
+                        metadata_sel = c("delta_mean_plaque", "delta_mean_bleeding"), # metadata selection
+                        pval_cutoff = 0.05, # pvalue cutoff 
+                        top_r = 12, # max number of taxa or metadata to be displayed as vector of the ordination
+                        alpha = NULL,
+                        col_pal = time_pal,
+                        fill_pal = time_pal,
+                        path_group = "interaction(Sample,Subject)",
+                        facet_formula = "Sample ~ .",
+                        axis1 = 1,
+                        axis2 = 2,
+                        seed = 123,
+                        perm = 999,
+                        permanova_terms = c("Subject","Time" ,"cluster_Dtp2"),
+                        metadata_dist_boxplot = c("Subject", "Time", "Sample"),
+                        strata = "none") -> out
+```
+
+Focus on Robust Aitchinson distance, clear discrimination between site, display trajectories.
+
+```{r}
+out$PCOA$p + facet_null() + stat_ellipse(data=out$PCOA$p$data,
+                                         segments = 21, linetype = 2, color = "grey80",
+                                         aes(group = interaction(time, Sample)),
+)
+```
+Corresponding legend:
+
+```{r}
+out$PCOA$p_leg
+```
+
+Genus with diff in proportions fitting ordination:
+
+```{r}
+out$env_fit_tax$envfit %>% 
+  DT::datatable()
+```
+
+Plot:
+
+```{r}
+out$env_fit_tax$plot 
+```
+
+To be able to fit the vectors we have to compute the ordination again. And sometimes,  ordiantions of the same data can be mirrored (sample are still similarly distant from each other but it is a problem for vector fitting !) 
+see: https://uw.pressbooks.pub/appliedmultivariatestatistics/chapter/visualizing-and-interpreting-ordinations/
+It shouldn't be the case because we are setting the same seed before but you never know...
+
+```{r}
+out$env_fit_tax$ploted_ordination_used_for_envfit 
+```
+Same plot!  
+
+Same with metadata:
+
+```{r}
+out$env_fit_meta$plot
+```
+
+# Run fonction on TP2 Plaque:
+
+```{r, warning=FALSE, echo=TRUE, include=TRUE, eval = FALSE}
+ps_up %>%
+  subset_taxa(Class != "UNCLASSIFIED") %>%
+  subset_samples(Sample == "Plaque" &
+                   Time == "TP2") %>%
+  transform_sample_counts(function(x) x/sum(x) * 1) %>% 
+  phyloseq_explore_beta(ps_up = .,
+                        beta = beta,
+                        color_group = "Time",
+                        shape_group = "Sample",
+                        distance_for_more = "rAitchison", #distance for detailed plot (path, and envfit vectors)
+                        metadata_sel = c("delta_mean_plaque", "delta_mean_bleeding"), # metadata selection
+                        col_pal = time_pal,
+                        fill_pal = time_pal,
+                        path_group = "interaction(Sample,Subject)",
+                        facet_formula = "Sample ~ .",
+                        permanova_terms = c("cluster_Dtp2"),
+                        strata = "none") -> plaque_tp2
+```
+
+Error in phyloseq_add_metadata_vector_fix(dist = beta[[distance_for_more]],  : 
+No significant metadata vectors after adjustment.
+
+No assocaition between   c("delta_mean_plaque", "delta_mean_bleeding") and microbiota at TP2.
+
+We will run it without:
+
+We can specify the taxonomic level for testing association between ordination and proportion of taxa: i.e., Phylum
+
+```{r, warning=FALSE, echo=TRUE, include=TRUE}
+ps_up %>%
+  subset_taxa(Class != "UNCLASSIFIED") %>%
+  subset_samples(Sample == "Plaque" &
+                   Time == "TP2") %>%
+  transform_sample_counts(function(x) x/sum(x) * 1) %>% 
+  phyloseq_explore_beta(ps_up = .,
+                        beta = beta,
+                        color_group = "Time",
+                        shape_group = "Sample",
+                        distance_for_more = "rAitchison", #distance for detailed plot (path, and envfit vectors)
+                        tax_rank_fit  = "Phylum", # taxonomic level for envfit vector fitting
+                        metadata_sel = NULL,
+                        col_pal = time_pal,
+                        fill_pal = time_pal,
+                        path_group = "interaction(Sample,Subject)",
+                        facet_formula = "Sample ~ .",
+                        permanova_terms = c("cluster_Dtp2"),
+                        strata = "none") -> plaque_tp2
+
+
+plaque_tp2$env_fit_tax$plot
+```
+
+
+Example with `Species`:
+
+
+```{r, warning=FALSE, echo=TRUE, include=TRUE}
+ps_up %>%
+  subset_taxa(Class != "UNCLASSIFIED") %>%
+  subset_samples(Sample == "Plaque" &
+                   Time == "TP2") %>%
+  transform_sample_counts(function(x) x/sum(x) * 1) %>% 
+  phyloseq_explore_beta(ps_up = .,
+                        beta = beta,
+                        color_group = "Time",
+                        shape_group = "Sample",
+                        distance_for_more = "rAitchison", #distance for detailed plot (path, and envfit vectors)
+                        tax_rank_fit  = "Species", # taxonomic level for envfit vector fitting
+                        metadata_sel = NULL,
+                        col_pal = time_pal,
+                        fill_pal = time_pal,
+                        path_group = "interaction(Sample,Subject)",
+                        facet_formula = "Sample ~ .",
+                        permanova_terms = c("cluster_Dtp2"),
+                        strata = "none") -> plaque_tp2
+
+
+
+
+plaque_tp2$PCOA$p
+```
+
+
+```{r, warning=FALSE, echo=TRUE, include=TRUE}
+plaque_tp2$env_fit_tax$plot
+```
+
+
+```{r}
+sessionInfo()
+```
